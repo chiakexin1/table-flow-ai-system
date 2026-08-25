@@ -5,7 +5,16 @@ import Card from "@/components/common/Card";
 import { useBooking } from "@/context/BookingContext";
 
 const Dashboard = () => {
-  const { bookings } = useBooking();
+  const { bookings, loading } = useBooking();
+
+  // ---------- Loading UI ----------
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <span className="text-muted-foreground animate-pulse">Loading dashboard…</span>
+      </div>
+    );
+  }
 
   // ---------- KPI calculations ----------
   const todayStr = new Date().toLocaleDateString("en-CA"); // YYYY‑MM‑DD (local)

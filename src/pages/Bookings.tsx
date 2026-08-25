@@ -8,9 +8,9 @@ import { showSuccess } from "@/utils/toast";
 import React from "react";
 
 const Bookings = () => {
-  const { bookings, updateBookingStatus } = useBooking();
+  const { bookings, loading, error, updateBookingStatus } = useBooking();
 
-  // Sort by combined date+time, nearest upcoming first
+  // Sort by combined date+time, nearest upcoming first (already ordered by DB)
   const sortedBookings = React.useMemo(() => {
     return [...bookings].sort((a, b) => {
       const aDate = new Date(`${a.bookingDate}T${a.bookingTime}`);
@@ -19,7 +19,6 @@ const Bookings = () => {
     });
   }, [bookings]);
 
-  // List of allowed status values (matches BookingContext type)
   const statusOptions = [
     "Pending",
     "Confirmed",
@@ -34,6 +33,29 @@ const Bookings = () => {
     showSuccess("Booking status updated successfully");
   };
 
+  // ----- Loading / error UI -------------------------------------------------
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <span className="text-muted-foreground animate-pulse">Loading bookings…</span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-6 text-center text-destructive">
+        <p className="mb-4">{error}</p>
+        <Link to="/dashboard">
+          <Button className="bg-primary text-primary-foreground hover:bg-primary/90">
+            Back to Dashboard
+          </Button>
+        </Link>
+      </div>
+    );
+  }
+
+  // ----- Main content -------------------------------------------------------
   return (
     <section className="space-y-6">
       {/* Header */}
@@ -101,13 +123,12 @@ const Bookings = () => {
                       {b.handledByAI ? "Yes" : "No"}
                     </td>
                     <td className="px-4 py-2 text-sm text-foreground flex items-center gap-2">
-                      {/* Badge for quick visual cue */}
                       <StatusBadge status={badgeStatus} />
-                      {/* Editable status dropdown */}
                       <select
                         value={b.status}
                         onChange={(e) =>
-                          handleStatusChange(b.id, e.target.value as typeof statusOptions[number])
+                          handleStatusChange(b.id, e.target.value```tsx
+                          e.target.value as typeof statusOptions[number]
                         }
                         className="rounded border border-input bg-background px-2 py-1 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                       >
