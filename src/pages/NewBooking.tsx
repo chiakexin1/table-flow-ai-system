@@ -149,7 +149,7 @@ export default function NewBooking() {
             </label>
             <input
               type="text"
-              required```tsx
+              required
               value={customerName}
               onChange={(e) => {
                 setCustomerName(e.target.value);
