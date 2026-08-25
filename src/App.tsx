@@ -16,6 +16,7 @@ import NotFound from "./pages/NotFound";
 
 import { BookingProvider } from "@/context/BookingContext";
 import { AuthProvider } from "@/context/AuthContext";
+import { RequireAuth } from "@/components/RequireAuth";
 
 const queryClient = new QueryClient();
 
@@ -30,17 +31,61 @@ const App = () => (
           <BookingProvider>
             <Layout>
               <Routes>
-                {/* Redirect root to dashboard */}
+                {/* Public routes */}
                 <Route path="/" element={<Navigate to="/dashboard" replace />} />
-
                 <Route path="/login" element={<Login />} />
-                <Route path="/dashboard" element={<Dashboard />} />
-                <Route path="/bookings" element={<Bookings />} />
-                <Route path="/bookings/new" element={<NewBooking />} />
-                <Route path="/settings" element={<Settings />} />
-                <Route path="/ai-advisor" element={<AIAdvisor />} />
-                <Route path="/escalations" element={<Escalations />} />
-                {/* Catch‑all for truly unknown URLs */}
+
+                {/* Protected routes – wrapped with RequireAuth */}
+                <Route
+                  path="/dashboard"
+                  element={
+                    <RequireAuth>
+                      <Dashboard />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/bookings"
+                  element={
+                    <RequireAuth>
+                      <Bookings />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/bookings/new"
+                  element={
+                    <RequireAuth>
+                      <NewBooking />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/settings"
+                  element={
+                    <RequireAuth>
+                      <Settings />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/ai-advisor"
+                  element={
+                    <RequireAuth>
+                      <AIAdvisor />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/escalations"
+                  element={
+                    <RequireAuth>
+                      <Escalations />
+                    </RequireAuth>
+                  }
+                />
+
+                {/* Catch‑all for unknown URLs */}
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </Layout>
