@@ -9,6 +9,9 @@ import type {
   Provider,
 } from "@supabase/supabase-js";
 
+// Import the restaurant bootstrap helper
+import { getOrCreateRestaurantForCurrentUser } from "@/services/restaurantService";
+
 /**
  * Shape of the value exported by the AuthContext.
  */
@@ -37,6 +40,7 @@ const AuthContext = React.createContext<AuthContextValue | undefined>(undefined)
  *   1. Restores any existing session on first render.
  *   2. Subscribes to Supabase auth state changes.
  *   3. Exposes user, session, loading and helper functions.
+ *   4. **Bootstraps a restaurant for the signed‑in user** (new step).
  */
 export const AuthProvider = ({
   children,
@@ -81,6 +85,28 @@ export const AuthProvider = ({
       subscription?.unsubscribe();
     };
   }, []);
+
+  /** -----------------------------------------------------------------
+   *  NEW: Bootstrap a restaurant record as soon as we have a valid user.
+   *  ----------------------------------------------------------------- */
+  React.useEffect(() => {
+    // Run only when a user becomes available (skip null -> unauthenticated)
+    if (user) {
+      // Wrap in an async IIFE to avoid making the effect itself async
+      (async () => {
+        try {
+          const restaurant = await getOrCreateRestaurantForCurrentUser();
+          console.info("[AuthProvider] restaurant bootstrap OK", {
+            restaurantId: restaurant.id,
+            ownerId: restaurant.owner_id,
+          });
+        } catch (err: any) {
+          console.error("[AuthProvider] restaurant bootstrap failed:", err);
+        }
+      })();
+    }
+    // We only depend on `user` – when it changes from null → user we run once.
+  }, [user]);
 
   /** Helper – sign in with email & password */
   const signIn = async (email: string, password: string) => {
