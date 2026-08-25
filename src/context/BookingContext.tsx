@@ -5,42 +5,19 @@ import { Booking, BookingStatus } from "@/types/booking";
 import { supabase } from "@/lib/supabase";
 import { getOrCreateRestaurantForCurrentUser } from "@/services/restaurantService";
 
-/** Key used for persisting bookings in localStorage (kept for future use) */
-const STORAGE_KEY = "tableflow_bookings";
+/** --------------------------------------------------------------
+ *  BookingContext – now uses Supabase as the *single* source of truth.
+ *  All localStorage helpers have been removed.
+ * -------------------------------------------------------------- */
 
-/** Helper – generate a simple pseudo‑unique id (good enough for prototype) */
-function generateId(): string {
-  return `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-}
-
-/** Load bookings from localStorage – *fallback only*, not used for the main list */
-function loadFromStorage(): Booking[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as Booking[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-/** Persist bookings to localStorage – kept for future write‑side migration */
-function saveToStorage(bookings: Booking[]) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(bookings));
-  } catch {
-    // ignore
-  }
-}
-
-/** Context value shape */
 export interface BookingContextValue {
-  /** All bookings currently stored (now from Supabase) */
+  /** All bookings currently stored (loaded from Supabase) */
   bookings: Booking[];
   /** Loading flag for the Supabase fetch */
   loading: boolean;
   /** Optional error string from the fetch */
   error?: string;
-  /** Create a new booking (now stored in Supabase) */
+  /** Create a new booking (stored in Supabase) */
   createBooking: (
     data: Omit<Booking, "id" | "createdAt" | "updatedAt" | "restaurantId">,
   ) => Promise<Booking>;
@@ -61,12 +38,16 @@ export const BookingProvider = ({
 }: {
   children: React.ReactNode;
 }) => {
-  const [bookings, setBookings] = React.useState<Booking[]>(() => loadFromStorage());
+  // -----------------------------------------------------------------
+  // 1️⃣  STATE – start with an empty array; no localStorage fallback.
+  // -----------------------------------------------------------------
+  const [bookings, setBookings] = React.useState<Booking[]>([]);
   const [loading, setLoading] = React.useState<boolean>(true);
   const [error, setError] = React.useState<string | undefined>(undefined);
 
   /** --------------------------------------------------------------
-   *  1️⃣  FETCH bookings from Supabase (unchanged)
+   *  2️⃣  FETCH bookings from Supabase (unchanged logic, just
+   *       no localStorage persisting).
    * -------------------------------------------------------------- */
   React.useEffect(() => {
     const fetch = async () => {
@@ -103,7 +84,7 @@ export const BookingProvider = ({
         }));
 
         setBookings(mapped);
-        saveToStorage(mapped);
+        // No localStorage write any more.
       } catch (err: any) {
         console.error("[BookingProvider] failed to load bookings:", err);
         setError(err?.message ?? "Failed to load bookings.");
@@ -116,7 +97,7 @@ export const BookingProvider = ({
   }, []); // run once on mount
 
   /** --------------------------------------------------------------
-   *  2️⃣  CREATE – insert a new booking into Supabase (unchanged)
+   *  3️⃣  CREATE – insert a new booking into Supabase
    * -------------------------------------------------------------- */
   const createBooking = React.useCallback(
     async (data) => {
@@ -134,7 +115,7 @@ export const BookingProvider = ({
             party_size: data.partySize,
             special_request: data.specialRequest ?? null,
             source: data.source,
-            status: "Pending",
+            status: "Pending", // fixed on create
             handled_by_ai: data.handledByAI ?? false,
           })
           .select()
@@ -160,11 +141,8 @@ export const BookingProvider = ({
           updatedAt: inserted.updated_at,
         };
 
-        setBookings((prev) => {
-          const updated = [newBooking, ...prev];
-          saveToStorage(updated);
-          return updated;
-        });
+        // Prepend to local state – the UI shows the new row immediately.
+        setBookings((prev) => [newBooking, ...prev]);
 
         return newBooking;
       } catch (err: any) {
@@ -176,17 +154,16 @@ export const BookingProvider = ({
   );
 
   /** --------------------------------------------------------------
-   *  3️⃣  UPDATE – change booking status in Supabase
+   *  4️⃣  UPDATE – change booking status in Supabase (optimistic UI)
    * -------------------------------------------------------------- */
   const updateBookingStatus = React.useCallback(
     async (id: string, status: BookingStatus) => {
-      // Find the current booking so we can roll back on error
       const previous = bookings.find((b) => b.id === id);
       if (!previous) {
         throw new Error("Booking not found in local state.");
       }
 
-      // Optimistic UI update
+      // Optimistic UI change
       setBookings((prev) =>
         prev.map((b) =>
           b.id === id ? { ...b, status, updatedAt: new Date().toISOString() } : b,
@@ -199,15 +176,14 @@ export const BookingProvider = ({
         .eq("id", id);
 
       if (supabaseError) {
-        // Revert UI change
+        // Revert UI on failure
         setBookings((prev) =>
           prev.map((b) => (b.id === id ? { ...previous } : b)),
         );
         console.error("[BookingProvider] status update failed:", supabaseError);
         throw supabaseError;
       }
-
-      // Success – keep optimistic state (already applied)
+      // Success – optimistic state stays.
     },
     [bookings],
   );
