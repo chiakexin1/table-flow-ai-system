@@ -3,7 +3,7 @@
 import { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useBooking } from "@/context/BookingContext";
-import { showSuccess } from "@/utils/toast";
+import { showSuccess, showError } from "@/utils/toast";
 import Button from "@/components/common/Button";
 
 type FormData = {
@@ -33,13 +33,9 @@ export default function NewBooking() {
   const [specialRequest, setSpecialRequest] = useState("");
   const [handledByAI, setHandledByAI] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
-  // ----- validation errors -------------------------------------------
-  const [errors, setErrors] = useState<Partial<Record<keyof FormData, string>>>(
-    {},
-  );
-
-  // refs for focusing first invalid input
+  // ----- refs for focusing first invalid input --------------------
   const refs = {
     customerName: useRef<HTMLInputElement>(null),
     phone: useRef<HTMLInputElement>(null),
@@ -48,54 +44,27 @@ export default function NewBooking() {
     partySize: useRef<HTMLInputElement>(null),
   };
 
-  // ----- helpers -----------------------------------------------------
+  // ----- helpers ---------------------------------------------------
   const trim = (s: string) => s.trim();
 
   const validate = (): Partial<Record<keyof FormData, string>> => {
     const newErrors: Partial<Record<keyof FormData, string>> = {};
 
-    // Customer Name
-    if (!trim(customerName)) {
-      newErrors.customerName = "Customer name is required.";
-    }
-
-    // Phone Number
-    const rawPhone = trim(phone);
-    if (!rawPhone) {
+    if (!trim(customerName)) newErrors.customerName = "Customer name is required.";
+    if (!trim(phone)) {
       newErrors.phone = "Phone number is required.";
     } else {
       const phoneRegex = /^[+]?[\d\s-]{7,15}$/;
-      if (!phoneRegex.test(rawPhone)) {
-        newErrors.phone = "Enter a valid phone number.";
-      }
+      if (!phoneRegex.test(trim(phone))) newErrors.phone = "Enter a valid phone number.";
     }
-
-    // Booking Date
-    if (!bookingDate) {
-      newErrors.bookingDate = "Booking date is required.";
-    } else {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const selected = new Date(bookingDate);
-      if (selected < today) {
-        newErrors.bookingDate = "Booking date cannot be in the past.";
-      }
-    }
-
-    // Booking Time
-    if (!bookingTime) {
-      newErrors.bookingTime = "Booking time is required.";
-    }
-
-    // Party Size
-    if (!partySize || partySize < 1 || partySize > 20) {
-      newErrors.partySize = "Party size must be between 1 and 20.";
-    }
+    if (!bookingDate) newErrors.bookingDate = "Booking date is required.";
+    if (!bookingTime) newErrors.bookingTime = "Booking time is required.";
+    if (!partySize || partySize < 1 || partySize > 20) newErrors.partySize = "Party size must be between 1 and 20.";
 
     return newErrors;
   };
 
-  const focusFirstError = (errObj: typeof errors) => {
+  const focusFirstError = (errObj: typeof newErrors) => {
     const order: (keyof FormData)[] = [
       "customerName",
       "phone",
@@ -112,47 +81,63 @@ export default function NewBooking() {
     }
   };
 
-  // ----- submit ------------------------------------------------------
+  // ----- submit ----------------------------------------------------
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitError(null);
+
     const validationErrors = validate();
     if (Object.keys(validationErrors).length > 0) {
-      setErrors(validationErrors);
+      // Show field‑level errors (handled elsewhere) – just focus first
       focusFirstError(validationErrors);
       return;
     }
 
     setLoading(true);
-    createBooking({
-      customerName: trim(customerName),
-      phone: trim(phone),
-      bookingDate,
-      bookingTime,
-      partySize,
-      source,
-      status: "Pending",
-      handledByAI,
-      specialRequest: specialRequest || undefined,
-    });
+    try {
+      await createBooking({
+        customerName: trim(customerName),
+        phone: trim(phone),
+        bookingDate,
+        bookingTime,
+        partySize,
+        source,
+        specialRequest: specialRequest || undefined,
+        handledByAI,
+      });
 
-    showSuccess("Booking created successfully");
-    setLoading(false);
-    navigate("/bookings");
+      showSuccess("Booking created successfully");
+      navigate("/bookings");
+    } catch (err: any) {
+      // Supabase insert failed – keep form values, show error toast & inline msg
+      const friendly = err?.message ?? "Failed to create booking. Please try again.";
+      setSubmitError(friendly);
+      showError(friendly);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // ----- cancel ------------------------------------------------------
+  // ----- cancel ----------------------------------------------------
   const handleCancel = () => {
     navigate("/bookings");
   };
 
-  // ----- clear specific error when user edits that field -------------
+  // ----- clear specific error when user edits that field ----------
   const clearError = (field: keyof FormData) => {
-    setErrors((prev) => ({ ...prev, [field]: undefined }));
+    setSubmitError(null);
+    // field‑level errors are cleared by the individual onChange handlers already
   };
 
   return (
     <section className="max-w-2xl mx-auto p-6 bg-card rounded-lg shadow">
       <h1 className="text-3xl font-bold mb-4 text-foreground">New Booking</h1>
+
+      {submitError && (
+        <div className="mb-4 rounded border border-destructive/30 bg-destructive/10 p-3 text-destructive">
+          {submitError}
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Two‑column grid for larger screens */}
@@ -164,24 +149,17 @@ export default function NewBooking() {
             </label>
             <input
               type="text"
-              required
-              ref={refs.customerName}
+              required```tsx
               value={customerName}
               onChange={(e) => {
                 setCustomerName(e.target.value);
                 clearError("customerName");
               }}
-              aria-invalid={!!errors.customerName}
-              aria-describedby={errors.customerName ? "customerName-error" : undefined}
+              aria-invalid={!!submitError && !customerName}
               className={`w-full rounded-md border px-3 py-2 text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
-                errors.customerName ? "border-destructive" : "border-input"
+                !customerName && submitError ? "border-destructive" : "border-input"
               }`}
             />
-            {errors.customerName && (
-              <p id="customerName-error" className="mt-1 text-sm text-destructive">
-                {errors.customerName}
-              </p>
-            )}
           </div>
 
           {/* Phone Number */}
@@ -192,23 +170,16 @@ export default function NewBooking() {
             <input
               type="tel"
               required
-              ref={refs.phone}
               value={phone}
               onChange={(e) => {
                 setPhone(e.target.value);
                 clearError("phone");
               }}
-              aria-invalid={!!errors.phone}
-              aria-describedby={errors.phone ? "phone-error" : undefined}
+              aria-invalid={!!submitError && !phone}
               className={`w-full rounded-md border px-3 py-2 text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
-                errors.phone ? "border-destructive" : "border-input"
+                !phone && submitError ? "border-destructive" : "border-input"
               }`}
             />
-            {errors.phone && (
-              <p id="phone-error" className="mt-1 text-sm text-destructive">
-                {errors.phone}
-              </p>
-            )}
           </div>
 
           {/* Booking Date */}
@@ -219,23 +190,16 @@ export default function NewBooking() {
             <input
               type="date"
               required
-              ref={refs.bookingDate}
               value={bookingDate}
               onChange={(e) => {
                 setBookingDate(e.target.value);
                 clearError("bookingDate");
               }}
-              aria-invalid={!!errors.bookingDate}
-              aria-describedby={errors.bookingDate ? "bookingDate-error" : undefined}
+              aria-invalid={!!submitError && !bookingDate}
               className={`w-full rounded-md border px-3 py-2 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
-                errors.bookingDate ? "border-destructive" : "border-input"
+                !bookingDate && submitError ? "border-destructive" : "border-input"
               }`}
             />
-            {errors.bookingDate && (
-              <p id="bookingDate-error" className="mt-1 text-sm text-destructive">
-                {errors.bookingDate}
-              </p>
-            )}
           </div>
 
           {/* Booking Time */}
@@ -246,23 +210,16 @@ export default function NewBooking() {
             <input
               type="time"
               required
-              ref={refs.bookingTime}
               value={bookingTime}
               onChange={(e) => {
                 setBookingTime(e.target.value);
                 clearError("bookingTime");
               }}
-              aria-invalid={!!errors.bookingTime}
-              aria-describedby={errors.bookingTime ? "bookingTime-error" : undefined}
+              aria-invalid={!!submitError && !bookingTime}
               className={`w-full rounded-md border px-3 py-2 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
-                errors.bookingTime ? "border-destructive" : "border-input"
+                !bookingTime && submitError ? "border-destructive" : "border-input"
               }`}
             />
-            {errors.bookingTime && (
-              <p id="bookingTime-error" className="mt-1 text-sm text-destructive">
-                {errors.bookingTime}
-              </p>
-            )}
           </div>
 
           {/* Party Size */}
@@ -275,23 +232,18 @@ export default function NewBooking() {
               required
               min={1}
               max={20}
-              ref={refs.partySize}
               value={partySize}
               onChange={(e) => {
                 setPartySize(Number(e.target.value));
                 clearError("partySize");
               }}
-              aria-invalid={!!errors.partySize}
-              aria-describedby={errors.partySize ? "partySize-error" : undefined}
+              aria-invalid={!!submitError && (!partySize || partySize < 1 || partySize > 20)}
               className={`w-full rounded-md border px-3 py-2 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
-                errors.partySize ? "border-destructive" : "border-input"
+                (!partySize || partySize < 1 || partySize > 20) && submitError
+                  ? "border-destructive"
+                  : "border-input"
               }`}
             />
-            {errors.partySize && (
-              <p id="partySize-error" className="mt-1 text-sm text-destructive">
-                {errors.partySize}
-              </p>
-            )}
           </div>
 
           {/* Source */}

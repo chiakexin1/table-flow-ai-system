@@ -40,10 +40,10 @@ export interface BookingContextValue {
   loading: boolean;
   /** Optional error string from the fetch */
   error?: string;
-  /** Create a new booking (still client‑side only) */
+  /** Create a new booking (now stored in Supabase) */
   createBooking: (
-    data: Omit<Booking, "id" | "createdAt" | "updatedAt">,
-  ) => Booking;
+    data: Omit<Booking, "id" | "createdAt" | "updatedAt" | "restaurantId">,
+  ) => Promise<Booking>;
   /** Retrieve the full list (alias for `bookings`) */
   listBookings: () => Booking[];
   /** Get a single booking by its id */
@@ -107,7 +107,7 @@ export const BookingProvider = ({
         }));
 
         setBookings(mapped);
-        // keep a copy in localStorage for now (optional)
+        // Optional local‑storage copy
         saveToStorage(mapped);
       } catch (err: any) {
         console.error("[BookingProvider] failed to load bookings:", err);
@@ -118,27 +118,71 @@ export const BookingProvider = ({
     };
 
     fetch();
-    // Run only once on mount – restaurant helper internally ensures idempotency
-  }, []); // empty deps: runs after component mounts
+    // runs once on mount
+  }, []); // empty deps
 
-  /** -----------------------------------------------------------------
-   *  2️⃣  Existing client‑side create / update helpers (still local only)
-   * ----------------------------------------------------------------- */
+  /** --------------------------------------------------------------
+   *  2️⃣  CREATE – insert a new booking into Supabase
+   * -------------------------------------------------------------- */
   const createBooking = React.useCallback(
-    (data) => {
-      const now = new Date().toISOString();
-      const newBooking: Booking = {
-        id: generateId(),
-        createdAt: now,
-        updatedAt: now,
-        handledByAI: false,
-        ...data,
-      };
-      setBookings((prev) => [newBooking, ...prev]);
-      saveToStorage([newBooking, ...bookings]); // keep local copy
-      return newBooking;
+    async (data) => {
+      try {
+        // 2️⃣ Get the restaurant for the current user
+        const restaurant = await getOrCreateRestaurantForCurrentUser();
+
+        // 3️⃣ Insert – map camelCase fields → snake_case
+        const { data: inserted, error: insertError } = await supabase
+          .from("bookings")
+          .insert({
+            restaurant_id: restaurant.id,
+            customer_name: data.customerName,
+            phone: data.phone,
+            booking_date: data.bookingDate,
+            booking_time: data.bookingTime,
+            party_size: data.partySize,
+            special_request: data.specialRequest ?? null,
+            source: data.source,
+            status: "Pending", // forced by spec
+            handled_by_ai: data.handledByAI ?? false,
+          })
+          .select()
+          .single();
+
+        if (insertError) {
+          throw insertError;
+        }
+
+        // Map inserted row back to frontend shape
+        const newBooking: Booking = {
+          id: inserted.id,
+          restaurantId: inserted.restaurant_id,
+          customerName: inserted.customer_name,
+          phone: inserted.phone,
+          bookingDate: inserted.booking_date,
+          bookingTime: inserted.booking_time,
+          partySize: inserted.party_size,
+          specialRequest: inserted.special_request ?? undefined,
+          source: inserted.source,
+          status: inserted.status,
+          handledByAI: inserted.handled_by_ai,
+          createdAt: inserted.created_at,
+          updatedAt: inserted.updated_at,
+        };
+
+        // Update local state (prepend to list) and keep storage in sync
+        setBookings((prev) => {
+          const updated = [newBooking, ...prev];
+          saveToStorage(updated);
+          return updated;
+        });
+
+        return newBooking;
+      } catch (err: any) {
+        console.error("[BookingProvider] createBooking error:", err);
+        throw err; // re‑throw for UI handling
+      }
     },
-    [bookings],
+    [], // no deps – internal calls are self‑contained
   );
 
   const listBookings = React.useCallback(() => bookings, [bookings]);
