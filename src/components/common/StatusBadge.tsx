@@ -7,6 +7,7 @@ type StatusBadgeProps = {
 const statusMap: Record<StatusBadgeProps["status"], { label: string; color: string }> = {
   pending: { label: "Pending", color: "bg-muted text-muted-foreground" },
   confirmed: { label: "Confirmed", color: "bg-primary text-primary-foreground" },
+  completed: { label: "Completed", color: "bg-green-100 text-green-700"},
   cancelled: { label: "Cancelled", color: "bg-destructive text-destructive-foreground" },
   no_show: { label: "No‑Show", color: "bg-accent text-accent-foreground" },
   escalated: { label: "Escalated", color: "bg-warning/20 text-warning" },
