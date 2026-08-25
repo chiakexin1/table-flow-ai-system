@@ -10,7 +10,7 @@ import React from "react";
 const Bookings = () => {
   const { bookings, loading, error, updateBookingStatus } = useBooking();
 
-  // Sort by combined date+time, nearest upcoming first (already ordered by DB)
+  // Sort bookings by date & time (already ordered by DB, but keep deterministic order)
   const sortedBookings = React.useMemo(() => {
     return [...bookings].sort((a, b) => {
       const aDate = new Date(`${a.bookingDate}T${a.bookingTime}`);
@@ -28,20 +28,26 @@ const Bookings = () => {
     "Escalated",
   ] as const;
 
-  const handleStatusChange = (id: string, newStatus: typeof statusOptions[number]) => {
+  const handleStatusChange = (
+    id: string,
+    newStatus: typeof statusOptions[number],
+  ) => {
     updateBookingStatus(id, newStatus);
     showSuccess("Booking status updated successfully");
   };
 
-  // ----- Loading / error UI -------------------------------------------------
+  // ----- Loading state ---------------------------------------------------
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
-        <span className="text-muted-foreground animate-pulse">Loading bookings…</span>
+        <span className="text-muted-foreground animate-pulse">
+          Loading bookings…
+        </span>
       </div>
     );
   }
 
+  // ----- Error state -----------------------------------------------------
   if (error) {
     return (
       <div className="p-6 text-center text-destructive">
@@ -55,7 +61,7 @@ const Bookings = () => {
     );
   }
 
-  // ----- Main content -------------------------------------------------------
+  // ----- Main UI ---------------------------------------------------------
   return (
     <section className="space-y-6">
       {/* Header */}
@@ -114,11 +120,21 @@ const Bookings = () => {
 
                 return (
                   <tr key={b.id} className="hover:bg-muted/50">
-                    <td className="px-4 py-2 text-sm text-foreground">{b.customerName}</td>
-                    <td className="px-4 py-2 text-sm text-foreground">{b.bookingDate}</td>
-                    <td className="px-4 py-2 text-sm text-foreground">{b.bookingTime}</td>
-                    <td className="px-4 py-2 text-sm text-foreground">{b.partySize}</td>
-                    <td className="px-4 py-2 text-sm text-foreground">{b.source}</td>
+                    <td className="px-4 py-2 text-sm text-foreground">
+                      {b.customerName}
+                    </td>
+                    <td className="px-4 py-2 text-sm text-foreground">
+                      {b.bookingDate}
+                    </td>
+                    <td className="px-4 py-2 text-sm text-foreground">
+                      {b.bookingTime}
+                    </td>
+                    <td className="px-4 py-2 text-sm text-foreground">
+                      {b.partySize}
+                    </td>
+                    <td className="px-4 py-2 text-sm text-foreground">
+                      {b.source}
+                    </td>
                     <td className="px-4 py-2 text-sm text-foreground">
                       {b.handledByAI ? "Yes" : "No"}
                     </td>
@@ -127,8 +143,10 @@ const Bookings = () => {
                       <select
                         value={b.status}
                         onChange={(e) =>
-                          handleStatusChange(b.id, e.target.value```tsx
-                          e.target.value as typeof statusOptions[number]
+                          handleStatusChange(
+                            b.id,
+                            e.target.value as typeof statusOptions[number],
+                          )
                         }
                         className="rounded border border-input bg-background px-2 py-1 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                       >
