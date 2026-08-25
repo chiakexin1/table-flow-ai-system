@@ -36,6 +36,7 @@ const Sidebar = ({ className = "" }: SidebarProps) => (
         <li key={to}>
           <NavLink
             to={to}
+            end
             className={({ isActive }) =>
               `flex items-center px-4 py-2 mx-2 rounded-md text-sm font-medium transition-colors
                ${
