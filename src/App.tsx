@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 
 import Layout from "./components/Layout";
 import Dashboard from "./pages/Dashboard";
@@ -24,6 +24,9 @@ const App = () => (
       <BrowserRouter>
         <Layout>
           <Routes>
+            {/* Redirect root to dashboard */}
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+
             <Route path="/login" element={<Login />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/bookings" element={<Bookings />} />
@@ -31,7 +34,7 @@ const App = () => (
             <Route path="/settings" element={<Settings />} />
             <Route path="/ai-advisor" element={<AIAdvisor />} />
             <Route path="/escalations" element={<Escalations />} />
-            {/* Catch‑all */}
+            {/* Catch‑all for truly unknown URLs */}
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Layout>
