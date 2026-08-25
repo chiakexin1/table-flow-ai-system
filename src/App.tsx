@@ -14,6 +14,8 @@ import Escalations from "./pages/Escalations";
 import Login from "./pages/Login";
 import NotFound from "./pages/NotFound";
 
+import { BookingProvider } from "@/context/BookingContext";
+
 const queryClient = new QueryClient();
 
 const App = () => (
@@ -22,22 +24,25 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
-        <Layout>
-          <Routes>
-            {/* Redirect root to dashboard */}
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        {/* Temporary booking state is now globally available */}
+        <BookingProvider>
+          <Layout>
+            <Routes>
+              {/* Redirect root to dashboard */}
+              <Route path="/" element={<Navigate to="/dashboard" replace />} />
 
-            <Route path="/login" element={<Login />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/bookings" element={<Bookings />} />
-            <Route path="/bookings/new" element={<NewBooking />} />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="/ai-advisor" element={<AIAdvisor />} />
-            <Route path="/escalations" element={<Escalations />} />
-            {/* Catch‑all for truly unknown URLs */}
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </Layout>
+              <Route path="/login" element={<Login />} />
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/bookings" element={<Bookings />} />
+              <Route path="/bookings/new" element={<NewBooking />} />
+              <Route path="/settings" element={<Settings />} />
+              <Route path="/ai-advisor" element={<AIAdvisor />} />
+              <Route path="/escalations" element={<Escalations />} />
+              {/* Catch‑all for truly unknown URLs */}
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </Layout>
+        </BookingProvider>
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
