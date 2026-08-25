@@ -3,7 +3,7 @@
 import { Link } from "react-router-dom";
 import { useBooking } from "@/context/BookingContext";
 import Button from "@/components/common/Button";
-import BookingTable from "@/components/common/BookingTable";
+import StatusBadge from "@/components/common/StatusBadge";
 
 const Bookings = () => {
   const { bookings } = useBooking();
@@ -40,7 +40,65 @@ const Bookings = () => {
           </Link>
         </div>
       ) : (
-        <BookingTable bookings={sortedBookings} />
+        <div className="overflow-x-auto rounded-md border border-border bg-card">
+          <table className="min-w-full divide-y divide-border">
+            <thead className="bg-muted">
+              <tr>
+                <th className="px-4 py-2 text-left text-sm font-medium text-foreground">
+                  Customer
+                </th>
+                <th className="px-4 py-2 text-left text-sm font-medium text-foreground">
+                  Date
+                </th>
+                <th className="px-4 py-2 text-left text-sm font-medium text-foreground">
+                  Time
+                </th>
+                <th className="px-4 py-2 text-left text-sm font-medium text-foreground">
+                  Party
+                </th>
+                <th className="px-4 py-2 text-left text-sm font-medium text-foreground">
+                  Source
+                </th>
+                <th className="px-4 py-2 text-left text-sm font-medium text-foreground">
+                  Handled by AI
+                </th>
+                <th className="px-4 py-2 text-left text-sm font-medium text-foreground">
+                  Status
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border bg-background">
+              {sortedBookings.map((b) => {
+                const badgeStatus = b.status
+                  .toLowerCase()
+                  .replace("-", "_") as any; // matches StatusBadge keys
+                return (
+                  <tr key={b.id} className="hover:bg-muted/50">
+                    <td className="px-4 py-2 text-sm text-foreground">
+                      {b.customerName}
+                    </td>
+                    <td className="px-4 py-2 text-sm text-foreground">
+                      {b.bookingDate}
+                    </td>
+                    <td className="px-4 py-2 text-sm text-foreground">
+                      {b.bookingTime}
+                    </td>
+                    <td className="px-4 py-2 text-sm text-foreground">
+                      {b.partySize}
+                    </td>
+                    <td className="px-4 py-2 text-sm text-foreground">{b.source}</td>
+                    <td className="px-4 py-2 text-sm text-foreground">
+                      {b.handledByAI ? "Yes" : "No"}
+                    </td>
+                    <td className="px-4 py-2 text-sm text-foreground">
+                      <StatusBadge status={badgeStatus} />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
     </section>
   );
