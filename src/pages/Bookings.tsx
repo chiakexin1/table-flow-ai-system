@@ -1,23 +1,49 @@
 "use client";
 
-import Table from "@/components/common/Table";
+import { Link } from "react-router-dom";
+import { useBooking } from "@/context/BookingContext";
+import Button from "@/components/common/Button";
+import BookingTable from "@/components/common/BookingTable";
 
-const dummyColumns = [
-  { header: "Date", accessor: "date" },
-  { header: "Time", accessor: "time" },
-  { header: "Name", accessor: "name" },
-  { header: "Party", accessor: "party" },
-  { header: "Status", accessor: "status" },
-];
+const Bookings = () => {
+  const { bookings } = useBooking();
 
-const dummyData = [];
+  // Sort by combined date+time, nearest upcoming first
+  const sortedBookings = React.useMemo(() => {
+    return [...bookings].sort((a, b) => {
+      const aDate = new Date(`${a.bookingDate}T${a.bookingTime}`);
+      const bDate = new Date(`${b.bookingDate}T${b.bookingTime}`);
+      return aDate.getTime() - bDate.getTime();
+    });
+  }, [bookings]);
 
-const Bookings = () => (
-  <section className="space-y-4">
-    <h1 className="text-3xl font-bold text-foreground">Bookings</h1>
+  return (
+    <section className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <h1 className="text-3xl font-bold text-foreground">Bookings</h1>
+        <Link to="/bookings/new">
+          <Button className="bg-primary text-primary-foreground hover:bg-primary/90">
+            + New Booking
+          </Button>
+        </Link>
+      </div>
 
-    <Table columns={dummyColumns} data={dummyData} />
-  </section>
-);
+      {/* Content */}
+      {sortedBookings.length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground">
+          <p className="mb-4 text-lg">No bookings found.</p>
+          <Link to="/bookings/new">
+            <Button className="bg-primary text-primary-foreground hover:bg-primary/90">
+              Create Booking
+            </Button>
+          </Link>
+        </div>
+      ) : (
+        <BookingTable bookings={sortedBookings} />
+      )}
+    </section>
+  );
+};
 
 export default Bookings;
