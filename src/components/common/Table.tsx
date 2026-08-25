@@ -29,30 +29,29 @@ export default function Table<T extends Record<string, any>>({
           <tr>
             {columns.map((col) => (
               <th
-                key={String(col        <th
-          className="px-4 py-2 text-left text-sm font-medium text-foreground"
-          key={col.header}
-        >
-          {col.header}
-        </th>
-      ))}
-    </tr>
-  </thead>
-  <tbody className="divide-y divide-border bg-background">
-    {data.map((row, idx) => (
-      <tr key={idx} className="hover:bg-muted/50">
-        {columns.map((col) => (
-          <td
-            key={String(col.accessor)}
-            className="px-4 py-2 text-sm text-foreground"
-          >
-            {String(row[col.accessor])}
-          </td>
-        ))}
-      </tr>
-    ))}
-  </tbody>
-</table>
-</div>
-);
+                key={String(col.accessor)}
+                className="px-4 py-2 text-left text-sm font-medium text-foreground"
+              >
+                {col.header}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border bg-background">
+          {data.map((row, idx) => (
+            <tr key={idx} className="hover:bg-muted/50">
+              {columns.map((col) => (
+                <td
+                  key={String(col.accessor)}
+                  className="px-4 py-2 text-sm text-foreground"
+                >
+                  {String(row[col.accessor])}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
