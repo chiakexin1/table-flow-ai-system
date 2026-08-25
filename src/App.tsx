@@ -15,6 +15,7 @@ import Login from "./pages/Login";
 import NotFound from "./pages/NotFound";
 
 import { BookingProvider } from "@/context/BookingContext";
+import { AuthProvider } from "@/context/AuthContext";
 
 const queryClient = new QueryClient();
 
@@ -23,27 +24,29 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
-      <BrowserRouter>
-        {/* Temporary booking state is now globally available */}
-        <BookingProvider>
-          <Layout>
-            <Routes>
-              {/* Redirect root to dashboard */}
-              <Route path="/" element={<Navigate to="/dashboard" replace />} />
+      <AuthProvider>
+        <BrowserRouter>
+          {/* Temporary booking state is now globally available */}
+          <BookingProvider>
+            <Layout>
+              <Routes>
+                {/* Redirect root to dashboard */}
+                <Route path="/" element={<Navigate to="/dashboard" replace />} />
 
-              <Route path="/login" element={<Login />} />
-              <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/bookings" element={<Bookings />} />
-              <Route path="/bookings/new" element={<NewBooking />} />
-              <Route path="/settings" element={<Settings />} />
-              <Route path="/ai-advisor" element={<AIAdvisor />} />
-              <Route path="/escalations" element={<Escalations />} />
-              {/* Catch‑all for truly unknown URLs */}
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </Layout>
-        </BookingProvider>
-      </BrowserRouter>
+                <Route path="/login" element={<Login />} />
+                <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="/bookings" element={<Bookings />} />
+                <Route path="/bookings/new" element={<NewBooking />} />
+                <Route path="/settings" element={<Settings />} />
+                <Route path="/ai-advisor" element={<AIAdvisor />} />
+                <Route path="/escalations" element={<Escalations />} />
+                {/* Catch‑all for truly unknown URLs */}
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </Layout>
+          </BookingProvider>
+        </BrowserRouter>
+      </AuthProvider>
     </TooltipProvider>
   </QueryClientProvider>
 );
