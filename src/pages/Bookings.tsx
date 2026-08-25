@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { useBooking } from "@/context/BookingContext";
 import Button from "@/components/common/Button";
 import StatusBadge from "@/components/common/StatusBadge";
+import React from "react";
 
 const Bookings = () => {
   const { bookings } = useBooking();
