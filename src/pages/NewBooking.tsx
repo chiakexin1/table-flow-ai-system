@@ -64,7 +64,6 @@ export default function NewBooking() {
     if (!rawPhone) {
       newErrors.phone = "Phone number is required.";
     } else {
-      // simple phone regex: allow digits, spaces, +, -; length 7‑15
       const phoneRegex = /^[+]?[\d\s-]{7,15}$/;
       if (!phoneRegex.test(rawPhone)) {
         newErrors.phone = "Enter a valid phone number.";
@@ -76,7 +75,7 @@ export default function NewBooking() {
       newErrors.bookingDate = "Booking date is required.";
     } else {
       const today = new Date();
-      today.setHours(0, 0, 0, 0); // midnight today
+      today.setHours(0, 0, 0, 0);
       const selected = new Date(bookingDate);
       if (selected < today) {
         newErrors.bookingDate = "Booking date cannot be in the past.";
@@ -92,8 +91,6 @@ export default function NewBooking() {
     if (!partySize || partySize < 1 || partySize > 20) {
       newErrors.partySize = "Party size must be between 1 and 20.";
     }
-
-    // Source – the select guarantees a valid value, no extra check needed
 
     return newErrors;
   };
@@ -126,7 +123,6 @@ export default function NewBooking() {
     }
 
     setLoading(true);
-    // Context will add id, timestamps, etc.
     createBooking({
       customerName: trim(customerName),
       phone: trim(phone),
@@ -156,9 +152,7 @@ export default function NewBooking() {
 
   return (
     <section className="max-w-2xl mx-auto p-6 bg-card rounded-lg shadow">
-      <h1 className="text-3xl font-bold mb-4 text-foreground">
-        New Booking
-      </h1>
+      <h1 className="text-3xl font-bold mb-4 text-foreground">New Booking</h1>
 
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Two‑column grid for larger screens */}
@@ -332,9 +326,7 @@ export default function NewBooking() {
 
         {/* Special Request – full width */}
         <div className="flex flex-col">
-          <label className="mb-1 font-medium text-foreground">
-            Special Request
-          </label>
+          <label className="mb-1 font-medium text-foreground">Special Request</label>
           <textarea
             rows={3}
             value={specialRequest}
@@ -344,20 +336,20 @@ export default function NewBooking() {
         </div>
 
         {/* Buttons */}
-        <div className="flex justify-end space-x-3          <div className="flex justify-end space-x-3">
-            <Button
-              type="button"
-              onClick={handleCancel}
-              disabled={loading}
-              className="bg-muted text-muted-foreground hover:bg-muted/80"
-            >
-              Cancel
-            </Button>
-            <Button type="submit" disabled={loading}>
-              {loading ? "Creating…" : "Create Booking"}
-            </Button>
-          </div>
-        </form>
-      </section>
-    );
+        <div className="flex justify-end space-x-3">
+          <Button
+            type="button"
+            onClick={handleCancel}
+            disabled={loading}
+            className="bg-muted text-muted-foreground hover:bg-muted/80"
+          >
+            Cancel
+          </Button>
+          <Button type="submit" disabled={loading}>
+            {loading ? "Creating…" : "Create Booking"}
+          </Button>
+        </div>
+      </form>
+    </section>
+  );
 }
