@@ -49,7 +49,7 @@ export interface BookingContextValue {
   /** Get a single booking by its id */
   getBooking: (id: string) => Booking | undefined;
   /** Update only the status (and updatedAt) of a given booking */
-  updateBookingStatus: (id: string, status: BookingStatus) => void;
+  updateBookingStatus: (id: string, status: BookingStatus) => Promise<void>;
 }
 
 /** Create the React context */
@@ -65,19 +65,16 @@ export const BookingProvider = ({
   const [loading, setLoading] = React.useState<boolean>(true);
   const [error, setError] = React.useState<string | undefined>(undefined);
 
-  /** -----------------------------------------------------------------
-   *  1️⃣  Fetch bookings from Supabase once we know the authenticated user
-   *      and have resolved his/her restaurant.
-   * ----------------------------------------------------------------- */
+  /** --------------------------------------------------------------
+   *  1️⃣  FETCH bookings from Supabase (unchanged)
+   * -------------------------------------------------------------- */
   React.useEffect(() => {
     const fetch = async () => {
       setLoading(true);
       setError(undefined);
       try {
-        // 1️⃣ Get the restaurant belonging to the current user
         const restaurant = await getOrCreateRestaurantForCurrentUser();
 
-        // 2️⃣ Query bookings for that restaurant
         const { data, error: supabaseError } = await supabase
           .from("bookings")
           .select("*")
@@ -89,7 +86,6 @@ export const BookingProvider = ({
           throw supabaseError;
         }
 
-        // 3️⃣ Map snake_case DB rows → camelCase frontend Booking objects
         const mapped: Booking[] = (data ?? []).map((row: any) => ({
           id: row.id,
           restaurantId: row.restaurant_id,
@@ -107,7 +103,6 @@ export const BookingProvider = ({
         }));
 
         setBookings(mapped);
-        // Optional local‑storage copy
         saveToStorage(mapped);
       } catch (err: any) {
         console.error("[BookingProvider] failed to load bookings:", err);
@@ -118,19 +113,16 @@ export const BookingProvider = ({
     };
 
     fetch();
-    // runs once on mount
-  }, []); // empty deps
+  }, []); // run once on mount
 
   /** --------------------------------------------------------------
-   *  2️⃣  CREATE – insert a new booking into Supabase
+   *  2️⃣  CREATE – insert a new booking into Supabase (unchanged)
    * -------------------------------------------------------------- */
   const createBooking = React.useCallback(
     async (data) => {
       try {
-        // 2️⃣ Get the restaurant for the current user
         const restaurant = await getOrCreateRestaurantForCurrentUser();
 
-        // 3️⃣ Insert – map camelCase fields → snake_case
         const { data: inserted, error: insertError } = await supabase
           .from("bookings")
           .insert({
@@ -142,7 +134,7 @@ export const BookingProvider = ({
             party_size: data.partySize,
             special_request: data.specialRequest ?? null,
             source: data.source,
-            status: "Pending", // forced by spec
+            status: "Pending",
             handled_by_ai: data.handledByAI ?? false,
           })
           .select()
@@ -152,7 +144,6 @@ export const BookingProvider = ({
           throw insertError;
         }
 
-        // Map inserted row back to frontend shape
         const newBooking: Booking = {
           id: inserted.id,
           restaurantId: inserted.restaurant_id,
@@ -169,7 +160,6 @@ export const BookingProvider = ({
           updatedAt: inserted.updated_at,
         };
 
-        // Update local state (prepend to list) and keep storage in sync
         setBookings((prev) => {
           const updated = [newBooking, ...prev];
           saveToStorage(updated);
@@ -179,10 +169,47 @@ export const BookingProvider = ({
         return newBooking;
       } catch (err: any) {
         console.error("[BookingProvider] createBooking error:", err);
-        throw err; // re‑throw for UI handling
+        throw err;
       }
     },
-    [], // no deps – internal calls are self‑contained
+    [],
+  );
+
+  /** --------------------------------------------------------------
+   *  3️⃣  UPDATE – change booking status in Supabase
+   * -------------------------------------------------------------- */
+  const updateBookingStatus = React.useCallback(
+    async (id: string, status: BookingStatus) => {
+      // Find the current booking so we can roll back on error
+      const previous = bookings.find((b) => b.id === id);
+      if (!previous) {
+        throw new Error("Booking not found in local state.");
+      }
+
+      // Optimistic UI update
+      setBookings((prev) =>
+        prev.map((b) =>
+          b.id === id ? { ...b, status, updatedAt: new Date().toISOString() } : b,
+        ),
+      );
+
+      const { error: supabaseError } = await supabase
+        .from("bookings")
+        .update({ status })
+        .eq("id", id);
+
+      if (supabaseError) {
+        // Revert UI change
+        setBookings((prev) =>
+          prev.map((b) => (b.id === id ? { ...previous } : b)),
+        );
+        console.error("[BookingProvider] status update failed:", supabaseError);
+        throw supabaseError;
+      }
+
+      // Success – keep optimistic state (already applied)
+    },
+    [bookings],
   );
 
   const listBookings = React.useCallback(() => bookings, [bookings]);
@@ -190,17 +217,6 @@ export const BookingProvider = ({
   const getBooking = React.useCallback(
     (id: string) => bookings.find((b) => b.id === id),
     [bookings],
-  );
-
-  const updateBookingStatus = React.useCallback(
-    (id: string, status: BookingStatus) => {
-      setBookings((prev) =>
-        prev.map((b) =>
-          b.id === id ? { ...b, status, updatedAt: new Date().toISOString() } : b,
-        ),
-      );
-    },
-    [],
   );
 
   const value: BookingContextValue = {

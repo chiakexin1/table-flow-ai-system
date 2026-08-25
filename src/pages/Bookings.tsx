@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import { useBooking } from "@/context/BookingContext";
 import Button from "@/components/common/Button";
 import StatusBadge from "@/components/common/StatusBadge";
-import { showSuccess } from "@/utils/toast";
+import { showSuccess, showError } from "@/utils/toast";
 import React from "react";
 
 const Bookings = () => {
@@ -28,21 +28,24 @@ const Bookings = () => {
     "Escalated",
   ] as const;
 
-  const handleStatusChange = (
+  const handleStatusChange = async (
     id: string,
     newStatus: typeof statusOptions[number],
   ) => {
-    updateBookingStatus(id, newStatus);
-    showSuccess("Booking status updated successfully");
+    try {
+      await updateBookingStatus(id, newStatus);
+      showSuccess("Booking status updated successfully");
+    } catch (err: any) {
+      const msg = err?.message ?? "Failed to update booking status.";
+      showError(msg);
+    }
   };
 
   // ----- Loading state ---------------------------------------------------
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
-        <span className="text-muted-foreground animate-pulse">
-          Loading bookings…
-        </span>
+        <span className="text-muted-foreground animate-pulse">Loading bookings…</span>
       </div>
     );
   }
@@ -120,21 +123,11 @@ const Bookings = () => {
 
                 return (
                   <tr key={b.id} className="hover:bg-muted/50">
-                    <td className="px-4 py-2 text-sm text-foreground">
-                      {b.customerName}
-                    </td>
-                    <td className="px-4 py-2 text-sm text-foreground">
-                      {b.bookingDate}
-                    </td>
-                    <td className="px-4 py-2 text-sm text-foreground">
-                      {b.bookingTime}
-                    </td>
-                    <td className="px-4 py-2 text-sm text-foreground">
-                      {b.partySize}
-                    </td>
-                    <td className="px-4 py-2 text-sm text-foreground">
-                      {b.source}
-                    </td>
+                    <td className="px-4 py-2 text-sm text-foreground">{b.customerName}</td>
+                    <td className="px-4 py-2 text-sm text-foreground">{b.bookingDate}</td>
+                    <td className="px-4 py-2 text-sm text-foreground">{b.bookingTime}</td>
+                    <td className="px-4 py-2 text-sm text-foreground">{b.partySize}</td>
+                    <td className="px-4 py-2 text-sm text-foreground">{b.source}</td>
                     <td className="px-4 py-2 text-sm text-foreground">
                       {b.handledByAI ? "Yes" : "No"}
                     </td>
