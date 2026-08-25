@@ -4,10 +4,12 @@ import * as React from "react";
 import { Booking, BookingStatus } from "@/types/booking";
 import { supabase } from "@/lib/supabase";
 import { getOrCreateRestaurantForCurrentUser } from "@/services/restaurantService";
+import { useAuth } from "@/context/AuthContext";
 
 /** --------------------------------------------------------------
- *  BookingContext – now uses Supabase as the *single* source of truth.
- *  All localStorage helpers have been removed.
+ *  BookingContext – Supabase is now the *only* source of truth.
+ *  The provider reacts to authentication changes so that bookings
+ *  from a previous user are never shown after logout/login.
  * -------------------------------------------------------------- */
 
 export interface BookingContextValue {
@@ -39,27 +41,44 @@ export const BookingProvider = ({
   children: React.ReactNode;
 }) => {
   // -----------------------------------------------------------------
-  // 1️⃣  STATE – start with an empty array; no localStorage fallback.
+  // 1️⃣  STATE – start empty; we will fetch only when we have a user.
   // -----------------------------------------------------------------
   const [bookings, setBookings] = React.useState<Booking[]>([]);
-  const [loading, setLoading] = React.useState<boolean>(true);
+  const [loading, setLoading] = React.useState<boolean>(false);
   const [error, setError] = React.useState<string | undefined>(undefined);
 
+  // -----------------------------------------------------------------
+  // 2️⃣  Auth – pull the current user from AuthContext.
+  // -----------------------------------------------------------------
+  const { user } = useAuth();
+
   /** --------------------------------------------------------------
-   *  2️⃣  FETCH bookings from Supabase (unchanged logic, just
-   *       no localStorage persisting).
+   *  3️⃣  Whenever the authenticated user changes (login, logout,
+   *      or switch), we either fetch the correct bookings or clear
+   *      the stale state.
    * -------------------------------------------------------------- */
   React.useEffect(() => {
+    // ── No user → clear everything (logout or not yet logged in)
+    if (!user) {
+      setBookings([]);
+      setLoading(false);
+      setError(undefined);
+      return;
+    }
+
+    // ── Authenticated → fetch bookings for *this* user's restaurant
     const fetch = async () => {
       setLoading(true);
       setError(undefined);
       try {
-        const restaurant = await getOrCreateRestaurantForCurrentUser();
+        // 1️⃣ Resolve the restaurant that belongs to the current user
+        const restaurant = await getOrCreateRestaurantForCurrentUser(); // uses the current auth user internally
 
+        // 2️⃣ Fetch ONLY the bookings that belong to that restaurant
         const { data, error: supabaseError } = await supabase
           .from("bookings")
           .select("*")
-          .eq("restaurant_id", restaurant.id)
+          .eq("restaurant_id", restaurant.id) // <-- strict filtering
           .order("booking_date", { ascending: true })
           .order("booking_time", { ascending: true });
 
@@ -67,6 +86,7 @@ export const BookingProvider = ({
           throw supabaseError;
         }
 
+        // 3️⃣ Map DB rows → frontend camelCase objects
         const mapped: Booking[] = (data ?? []).map((row: any) => ({
           id: row.id,
           restaurantId: row.restaurant_id,
@@ -84,20 +104,22 @@ export const BookingProvider = ({
         }));
 
         setBookings(mapped);
-        // No localStorage write any more.
       } catch (err: any) {
         console.error("[BookingProvider] failed to load bookings:", err);
         setError(err?.message ?? "Failed to load bookings.");
+        setBookings([]); // ensure no stale data leaks
       } finally {
         setLoading(false);
       }
     };
 
     fetch();
-  }, []); // run once on mount
+    // Re‑run whenever the auth user changes
+  }, [user]); // <-- dependency on the authenticated user
 
   /** --------------------------------------------------------------
-   *  3️⃣  CREATE – insert a new booking into Supabase
+   *  4️⃣  CREATE – insert a new booking into Supabase (restaurant_id
+   *      comes from the *current* user's restaurant)
    * -------------------------------------------------------------- */
   const createBooking = React.useCallback(
     async (data) => {
@@ -115,7 +137,7 @@ export const BookingProvider = ({
             party_size: data.partySize,
             special_request: data.specialRequest ?? null,
             source: data.source,
-            status: "Pending", // fixed on create
+            status: "Pending",
             handled_by_ai: data.handledByAI ?? false,
           })
           .select()
@@ -141,7 +163,7 @@ export const BookingProvider = ({
           updatedAt: inserted.updated_at,
         };
 
-        // Prepend to local state – the UI shows the new row immediately.
+        // Optimistically prepend to UI state
         setBookings((prev) => [newBooking, ...prev]);
 
         return newBooking;
@@ -154,7 +176,7 @@ export const BookingProvider = ({
   );
 
   /** --------------------------------------------------------------
-   *  4️⃣  UPDATE – change booking status in Supabase (optimistic UI)
+   *  5️⃣  UPDATE – change booking status in Supabase (optimistic UI)
    * -------------------------------------------------------------- */
   const updateBookingStatus = React.useCallback(
     async (id: string, status: BookingStatus) => {
@@ -163,7 +185,7 @@ export const BookingProvider = ({
         throw new Error("Booking not found in local state.");
       }
 
-      // Optimistic UI change
+      // Optimistic UI update
       setBookings((prev) =>
         prev.map((b) =>
           b.id === id ? { ...b, status, updatedAt: new Date().toISOString() } : b,
