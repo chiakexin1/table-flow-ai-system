@@ -48,11 +48,51 @@ async function fetchWithTimeout(
 }
 
 /* ------------------------------------------------------------------
-   Primary health / connectivity check.
-   Calls Ollama’s `/api/tags` endpoint to verify the daemon is up
-   and optionally confirm the requested model is installed.
+   Retrieve the list of installed Ollama models.
+   Returns an array of model names (empty array on error or no models).
    ------------------------------------------------------------------ */
-export async function checkOllamaConnection(): Promise<OllamaConnectionResult> {
+export async function listOllamaModels(): Promise<string[]> {
+  const tagsUrl = `${OLLAMA_BASE_URL.replace(/\/+$/, "")}/api/tags`;
+
+  try {
+    const resp = await fetchWithTimeout(tagsUrl, { method: "GET" });
+
+    if (!resp.ok) {
+      // Unexpected HTTP status → treat as no models available
+      console.error("[ollama] tags request failed:", resp.status);
+      return [];
+    }
+
+    const json = await resp.json();
+
+    const schema = z.object({
+      models: z.array(z.object({ name: z.string() })),
+    });
+
+    const parseResult = schema.safeParse(json);
+    if (!parseResult.success) {
+      console.error("[ollama] unexpected tags response format");
+      return [];
+    }
+
+    return parseResult.data.models.map((m) => m.name);
+  } catch (err: any) {
+    if (err.name === "AbortError") {
+      console.error("[ollama] tags request timed out");
+    } else {
+      console.error("[ollama] tags request error:", err);
+    }
+    return [];
+  }
+}
+
+/* ------------------------------------------------------------------
+   Primary health / connectivity check.
+   Optionally accepts a runtime model name to verify.
+   ------------------------------------------------------------------ */
+export async function checkOllamaConnection(
+  selectedModel?: string,
+): Promise<OllamaConnectionResult> {
   const tagsUrl = `${OLLAMA_BASE_URL.replace(/\/+$/, "")}/api/tags`;
 
   try {
@@ -81,24 +121,31 @@ export async function checkOllamaConnection(): Promise<OllamaConnectionResult> {
       };
     }
 
+    const availableModels = parseResult.data.models.map((m) => m.name);
+
     // ----------------------------------------------------------------
-    // Model verification (if a model name was supplied)
+    // Determine which model we should validate against.
     // ----------------------------------------------------------------
-    if (!OLLAMA_MODEL) {
+    const modelToValidate =
+      selectedModel !== undefined
+        ? selectedModel
+        : OLLAMA_MODEL; // fallback to env variable when no explicit selection
+
+    // No model supplied → configuration missing.
+    if (!modelToValidate) {
       return {
         status: "model_not_configured",
-        details: "VITE_OLLAMA_MODEL is missing or empty",
+        details: "No model supplied (env or UI selection)",
       };
     }
 
-    const modelExists = parseResult.data.models.some(
-      (m) => m.name === OLLAMA_MODEL,
-    );
+    // Verify the model exists in the list returned by Ollama.
+    const found = availableModels.includes(modelToValidate);
 
-    if (!modelExists) {
+    if (!found) {
       return {
         status: "model_not_found",
-        details: `Model "${OLLAMA_MODEL}" not installed on this Ollama instance`,
+        details: `Model "${modelToValidate}" not installed on this Ollama instance`,
       };
     }
 

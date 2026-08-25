@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import Button from "@/components/common/Button";
 import {
   checkOllamaConnection,
+  listOllamaModels,
   ollamaConfig,
   type OllamaConnectionStatus,
   type OllamaConnectionResult,
@@ -37,31 +38,75 @@ function statusLabel(
    Main Advisor page.
    ------------------------------------------------------------------ */
 export default function AIAdvisor() {
-  /* ---------- Ollama connection state ---------- */
+  /* ---------- Ollama connection & model state ---------- */
   const [connectionStatus, setConnectionStatus] = useState<
     OllamaConnectionStatus | "checking"
   >("checking");
   const [connectionDetails, setConnectionDetails] = useState<string | undefined>();
 
-  const runConnectionCheck = async () => {
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [modelsLoading, setModelsLoading] = useState<boolean>(true);
+  const [selectedModel, setSelectedModel] = useState<string | undefined>();
+
+  const LOCAL_STORAGE_KEY = "selectedOllamaModel";
+
+  /* ---------- Load model list on mount ---------- */
+  const fetchModels = async () => {
+    setModelsLoading(true);
+    const models = await listOllamaModels();
+    setAvailableModels(models);
+    setModelsLoading(false);
+
+    // Determine initial selection:
+    // 1️⃣ stored preference → use it if still available
+    // 2️⃣ env default (ollamaConfig.model) → use if available
+    // 3️⃣ first model in the list → fallback
+    const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (stored && models.includes(stored)) {
+      setSelectedModel(stored);
+    } else if (ollamaConfig.model && models.includes(ollamaConfig.model)) {
+      setSelectedModel(ollamaConfig.model);
+    } else if (models.length > 0) {
+      setSelectedModel(models[0]);
+    }
+  };
+
+  /* ---------- Run connectivity check, optionally with a model ---------- */
+  const runConnectionCheck = async (modelToCheck?: string) => {
     setConnectionStatus("checking");
     setConnectionDetails(undefined);
     try {
-      const result: OllamaConnectionResult = await checkOllamaConnection();
+      const result: OllamaConnectionResult = await checkOllamaConnection(
+        modelToCheck,
+      );
       setConnectionStatus(result.status);
       if (result.details) setConnectionDetails(result.details);
     } catch (e) {
-      // Defensive – any unexpected error is treated as offline.
       setConnectionStatus("offline");
       setConnectionDetails((e as Error).message);
     }
   };
 
-  // Initial check on mount.
+  /* ---------- Initial load ---------- */
   useEffect(() => {
-    runConnectionCheck();
+    // Load models first, then run a connection check using whatever
+    // model (if any) becomes selected after the fetch.
+    const init = async () => {
+      await fetchModels();
+    };
+    init();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /* ---------- Re‑run health check whenever the selected model changes ---------- */
+  useEffect(() => {
+    if (selectedModel !== undefined) {
+      // Persist selection for future visits
+      localStorage.setItem(LOCAL_STORAGE_KEY, selectedModel);
+      runConnectionCheck(selectedModel);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedModel]);
 
   /* ---------- Conversation UI state ---------- */
   const [messages, setMessages] = useState<string[]>([]);
@@ -83,6 +128,16 @@ export default function AIAdvisor() {
     setInput(prompt);
   };
 
+  /* ---------- Model selector UI ---------- */
+  const handleModelSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const value = e.target.value;
+    if (value === "__none__") {
+      setSelectedModel(undefined);
+    } else {
+      setSelectedModel(value);
+    }
+  };
+
   return (
     <section className="max-w-4xl mx-auto p-6 bg-card rounded-lg shadow">
       {/* ----- Header ----- */}
@@ -95,9 +150,10 @@ export default function AIAdvisor() {
 
       {/* ----- Ollama connection status panel ----- */}
       <div className="mb-6 p-4 border rounded-md bg-background">
-        <div className="flex items-center justify-between">
+        {/* Server status */}
+        <div className="flex items-center justify-between mb-2">
           <span className="font-medium text-foreground">
-            Ollama Service Status:
+            Ollama Service:
           </span>
           <span
             className={`font-medium ${
@@ -112,10 +168,41 @@ export default function AIAdvisor() {
           </span>
         </div>
 
+        {/* Model selector */}
+        <div className="flex items-center justify-between">
+          <label className="font-medium text-foreground">Model:</label>
+
+          {modelsLoading ? (
+            <span className="text-sm text-muted-foreground">
+              Loading models…
+            </span>
+          ) : availableModels.length === 0 ? (
+            <span className="text-sm text-destructive">
+              No Ollama models installed
+            </span>
+          ) : (
+            <select
+              value={selectedModel ?? "__none__"}
+              onChange={handleModelSelect}
+              className="rounded border border-input bg-background px-2 py-1 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              {/* Allow a “none selected” option – useful when the env var is empty */}
+              <option value="__none__" disabled>
+                -- select a model --
+              </option>
+              {availableModels.map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+
         {/* Show model name when connected */}
-        {connectionStatus === "connected" && ollamaConfig.model && (
+        {connectionStatus === "connected" && selectedModel && (
           <p className="mt-2 text-sm text-foreground">
-            Model: <span className="font-medium">{ollamaConfig.model}</span>
+            Selected model: <span className="font-medium">{selectedModel}</span>
           </p>
         )}
 
@@ -125,7 +212,7 @@ export default function AIAdvisor() {
         )}
 
         <Button
-          onClick={runConnectionCheck}
+          onClick={() => runConnectionCheck(selectedModel)}
           className="mt-4 bg-primary text-primary-foreground hover:bg-primary/90"
           disabled={connectionStatus === "checking"}
         >
@@ -200,7 +287,7 @@ export default function AIAdvisor() {
 
         {/* Privacy / context notice */}
         <p className="mt-2 text-xs text-muted-foreground">
-          Only relevant restaurant context will be shared with the local AI model
+                   Only relevant restaurant context will be shared with the local AI model
           when you submit a request.
         </p>
       </div>
