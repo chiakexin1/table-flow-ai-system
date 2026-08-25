@@ -4,10 +4,11 @@ import { Link } from "react-router-dom";
 import { useBooking } from "@/context/BookingContext";
 import Button from "@/components/common/Button";
 import StatusBadge from "@/components/common/StatusBadge";
+import { showSuccess } from "@/utils/toast";
 import React from "react";
 
 const Bookings = () => {
-  const { bookings } = useBooking();
+  const { bookings, updateBookingStatus } = useBooking();
 
   // Sort by combined date+time, nearest upcoming first
   const sortedBookings = React.useMemo(() => {
@@ -17,6 +18,21 @@ const Bookings = () => {
       return aDate.getTime() - bDate.getTime();
     });
   }, [bookings]);
+
+  // List of allowed status values (matches BookingContext type)
+  const statusOptions = [
+    "Pending",
+    "Confirmed",
+    "Completed",
+    "Cancelled",
+    "No-show",
+    "Escalated",
+  ] as const;
+
+  const handleStatusChange = (id: string, newStatus: typeof statusOptions[number]) => {
+    updateBookingStatus(id, newStatus);
+    showSuccess("Booking status updated successfully");
+  };
 
   return (
     <section className="space-y-6">
@@ -73,26 +89,34 @@ const Bookings = () => {
                 const badgeStatus = b.status
                   .toLowerCase()
                   .replace("-", "_") as any; // matches StatusBadge keys
+
                 return (
                   <tr key={b.id} className="hover:bg-muted/50">
-                    <td className="px-4 py-2 text-sm text-foreground">
-                      {b.customerName}
-                    </td>
-                    <td className="px-4 py-2 text-sm text-foreground">
-                      {b.bookingDate}
-                    </td>
-                    <td className="px-4 py-2 text-sm text-foreground">
-                      {b.bookingTime}
-                    </td>
-                    <td className="px-4 py-2 text-sm text-foreground">
-                      {b.partySize}
-                    </td>
+                    <td className="px-4 py-2 text-sm text-foreground">{b.customerName}</td>
+                    <td className="px-4 py-2 text-sm text-foreground">{b.bookingDate}</td>
+                    <td className="px-4 py-2 text-sm text-foreground">{b.bookingTime}</td>
+                    <td className="px-4 py-2 text-sm text-foreground">{b.partySize}</td>
                     <td className="px-4 py-2 text-sm text-foreground">{b.source}</td>
                     <td className="px-4 py-2 text-sm text-foreground">
                       {b.handledByAI ? "Yes" : "No"}
                     </td>
-                    <td className="px-4 py-2 text-sm text-foreground">
+                    <td className="px-4 py-2 text-sm text-foreground flex items-center gap-2">
+                      {/* Badge for quick visual cue */}
                       <StatusBadge status={badgeStatus} />
+                      {/* Editable status dropdown */}
+                      <select
+                        value={b.status}
+                        onChange={(e) =>
+                          handleStatusChange(b.id, e.target.value as typeof statusOptions[number])
+                        }
+                        className="rounded border border-input bg-background px-2 py-1 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                      >
+                        {statusOptions.map((opt) => (
+                          <option key={opt} value={opt}>
+                            {opt}
+                          </option>
+                        ))}
+                      </select>
                     </td>
                   </tr>
                 );
