@@ -167,6 +167,88 @@ export async function checkOllamaConnection(
 }
 
 /* ------------------------------------------------------------------
+   Streamed chat generation against Ollama.
+   Sends a POST /api/chat with `stream: true` and calls `onChunk`
+   for each piece of assistant content received.
+   AbortController can be supplied to cancel the request.
+   ------------------------------------------------------------------ */
+export async function streamChat(
+  /** Messages for the Ollama chat – must include a system message first */
+  messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
+  /** Model name to use – must be installed */
+  model: string,
+  /** Called for every piece of assistant content received */
+  onChunk: (chunk: string) => void,
+  /** Optional abort controller to cancel streaming */
+  abortController?: AbortController,
+): Promise<void> {
+  const endpoint = `${OLLAMA_BASE_URL.replace(/\/+$/, "")}/api/chat`;
+
+  const payload = {
+    model,
+    messages,
+    stream: true,
+  };
+
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    signal: abortController?.signal,
+  });
+
+  if (!response.ok) {
+    const txt = await response.text();
+    throw new Error(
+      `Ollama chat request failed (${response.status}): ${txt}`,
+    );
+  }
+
+  // Ollama streams NDJSON lines: `data: {...}`\n\n
+  const decoder = new TextDecoder();
+  const reader = response.body?.getReader();
+
+  if (!reader) {
+    throw new Error("Unable to read streaming response from Ollama");
+  }
+
+  let buffer = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    // Process each line that ends with a newline
+    let lineEnd: number;
+    while ((lineEnd = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, lineEnd).trim();
+      buffer = buffer.slice(lineEnd + 1);
+
+      if (!line) continue; // skip empty lines
+      if (line === "data: [DONE]") {
+        // Stream finished
+        return;
+      }
+
+      // Expected format: data: {"message":{"role":"assistant","content":"..."}}
+      if (line.startsWith("data:")) {
+        const jsonPart = line.replace(/^data:\s*/, "");
+        try {
+          const parsed = JSON.parse(jsonPart);
+          const content = parsed?.message?.content;
+          if (typeof content === "string") {
+            onChunk(content);
+          }
+        } catch {
+          // If parsing fails just ignore the line – it’s non‑critical.
+        }
+      }
+    }
+  }
+}
+
+/* ------------------------------------------------------------------
    Exported configuration constants – useful for later AI‑advisor code.
    ------------------------------------------------------------------ */
 export const ollamaConfig = {
