@@ -13,6 +13,8 @@ export interface AIAdvisorRestaurantInfo {
   timezone: string;
   /** Maximum party size allowed by the restaurant (optional) */
   maxPartySize?: number;
+  /** Opening hours object as stored in the DB (may be null/empty) */
+  openingHours?: Record<string, any> | null;
 }
 
 export interface AIAdvisorSummary {
@@ -22,7 +24,7 @@ export interface AIAdvisorSummary {
   todayBookings: number;
   /** Number of bookings scheduled for any future date (including today?) */
   upcomingBookings: number;
-  /** Count of bookings per status value */
+  /** How many bookings per status value */
   statusCounts: Record<BookingStatus, number>;
   /** How many bookings have already been handled by the AI */
   aiHandledCount: number;
@@ -68,6 +70,7 @@ export async function buildAIAdvisorContext(
     name: restaurant.name,
     timezone: restaurant.timezone,
     maxPartySize: restaurant.max_party_size,
+    openingHours: restaurant.opening_hours ?? null,
   };
 
   // ----- Date helpers ----------------------------------------------------
@@ -144,11 +147,34 @@ export async function buildAIAdvisorContext(
 export function formatAIAdvisorContext(context: AIAdvisorContext): string {
   const lines: string[] = [];
 
+  // ---- Restaurant block -------------------------------------------------
   lines.push(`Restaurant: ${context.restaurant.name}`);
   lines.push(`Timezone: ${context.restaurant.timezone}`);
-  if (context.restaurant.maxPartySize)
+  if (context.restaurant.maxPartySize !== undefined) {
     lines.push(`Max party size: ${context.restaurant.maxPartySize}`);
+  }
 
+  // Opening hours – friendly formatting
+  const oh = context.restaurant.openingHours;
+  if (!oh || Object.keys(oh).length === 0) {
+    lines.push(`Opening hours: Not configured`);
+  } else {
+    lines.push(`Opening hours:`);
+    // Expected keys are the week‑day strings; we will preserve whatever is present.
+    for (const [dayKey, dayVal] of Object.entries(oh)) {
+      const dayName = dayKey.charAt(0).toUpperCase() + dayKey.slice(1);
+      if (dayVal?.closed) {
+        lines.push(`- ${dayName}: Closed`);
+      } else if (dayVal?.open && dayVal?.close) {
+        lines.push(`- ${dayName}: ${dayVal.open} - ${dayVal.close}`);
+      } else {
+        // Incomplete data – show as not configured for that day
+        lines.push(`- ${dayName}: Not configured`);
+      }
+    }
+  }
+
+  // ----------------------------------------------------------------------
   lines.push("\nBookings Summary:");
   lines.push(`- Total bookings: ${context.summary.totalBookings}`);
   lines.push(`- Today's bookings: ${context.summary.todayBookings}`);
