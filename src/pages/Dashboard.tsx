@@ -1,7 +1,9 @@
 "use client";
 
 import React from "react";
+import { Link } from "react-router-dom";
 import Card from "@/components/common/Card";
+import Button from "@/components/common/Button";
 import { useBooking } from "@/context/BookingContext";
 import { StatusChart } from "@/components/dashboard/StatusChart";
 import { TrendChart } from "@/components/dashboard/TrendChart";
@@ -9,16 +11,11 @@ import { TrendChart } from "@/components/dashboard/TrendChart";
 /**
  * Dashboard – shows operational KPIs for the authenticated restaurant.
  *
- * New KPIs:
- *   • Open Escalations (status === "Escalated")
- *   • Pending Bookings    (status === "Pending")
- *   • Existing KPIs unchanged
- *
- * Additional sections:
- *   • Recent Bookings – up to 5 recent bookings.
- *   • Attention Needed – shows pending & escalated counts or a friendly empty state.
- *   • Booking Status Breakdown (pie chart)
- *   • 7‑Day Booking Trend (bar chart)
+ * New features:
+ *   • Quick Actions (navigation shortcuts)
+ *   • Conditional navigation links in Attention Needed
+ *   • “View All Bookings” link in Recent Bookings
+ *   • Existing KPI cards, charts, and sections remain unchanged
  */
 const Dashboard = () => {
   const { bookings, loading } = useBooking();
@@ -54,7 +51,7 @@ const Dashboard = () => {
     const start = new Date(now);
     start.setHours(0, 0, 0, 0); // start of today
     const end = new Date(start);
-    end.setDate(end.getDate() + 6); // six days after today (today + 6 = 7‑day window)
+    end.setDate(end.getDate() + 6); // today + 6 = 7‑day window
 
     return bookings.filter((b) => {
       const d = new Date(b.bookingDate);
@@ -131,6 +128,40 @@ const Dashboard = () => {
         />
       </div>
 
+      {/* ==== QUICK ACTIONS ==== */}
+      <section className="rounded-md border border-border bg-card p-4">
+        <h2 className="text-2xl font-semibold text-foreground mb-3">
+          Quick Actions
+        </h2>
+        <div className="flex flex-wrap gap-3">
+          <Link to="/bookings/new">
+            <Button className="bg-primary text-primary-foreground hover:bg-primary/90">
+              New Booking
+            </Button>
+          </Link>
+          <Link to="/bookings">
+            <Button className="bg-muted text-muted-foreground hover:bg-muted/80">
+              View Bookings
+            </Button>
+          </Link>
+          <Link to="/escalations">
+            <Button className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Review Escalations
+            </Button>
+          </Link>
+          <Link to="/settings">
+            <Button className="bg-secondary text-secondary-foreground hover:bg-secondary/90">
+              Restaurant Settings
+            </Button>
+          </Link>
+          <Link to="/ai-advisor">
+            <Button className="bg-primary text-primary-foreground hover:bg-primary/90">
+              Ask AI Advisor
+            </Button>
+          </Link>
+        </div>
+      </section>
+
       {/* ==== CHARTS SECTION (responsive) ==== */}
       <div className="grid gap-4 md:grid-cols-2">
         <StatusChart statusCounts={statusCounts} />
@@ -150,10 +181,24 @@ const Dashboard = () => {
         ) : (
           <ul className="list-disc pl-5 space-y-2 text-foreground">
             {pendingCount > 0 && (
-              <li>{`Pending bookings: ${pendingCount}`}</li>
+              <li className="flex items-center justify-between">
+                <span>{`Pending bookings: ${pendingCount}`}</span>
+                <Link to="/bookings">
+                  <Button className="ml-4 bg-muted text-muted-foreground hover:bg-muted/80">
+                    View Bookings
+                  </Button>
+                </Link>
+              </li>
             )}
             {openEscalationsCount > 0 && (
-              <li>{`Open escalations: ${openEscalationsCount}`}</li>
+              <li className="flex items-center justify-between">
+                <span>{`Open escalations: ${openEscalationsCount}`}</span>
+                <Link to="/escalations">
+                  <Button className="ml-4 bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                    Review Escalations
+                  </Button>
+                </Link>
+              </li>
             )}
           </ul>
         )}
@@ -168,40 +213,49 @@ const Dashboard = () => {
         {recentBookings.length === 0 ? (
           <p className="text-muted-foreground">No bookings yet.</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-border">
-              <thead className="bg-muted">
-                <tr>
-                  <th className="px-4 py-2 text-left text-sm font-medium text-foreground">
-                    Customer
-                  </th>
-                  <th className="px-4 py-2 text-left text-sm font-medium text-foreground">
-                    Date
-                  </th>
-                  <th className="px-4 py-2 text-left text-sm font-medium text-foreground">
-                    Time
-                  </th>
-                  <th className="px-4 py-2 text-left text-sm font-medium text-foreground">
-                    Party
-                  </th>
-                  <th className="px-4 py-2 text-left text-sm font-medium text-foreground">
-                    Status
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border bg-background">
-                {recentBookings.map((b) => (
-                  <tr key={b.id} className="hover:bg-muted/50">
-                    <td className="px-4 py-2 text-sm text-foreground">{b.customerName}</td>
-                    <td className="px-4 py-2 text-sm text-foreground">{b.bookingDate}</td>
-                    <td className="px-4 py-2 text-sm text-foreground">{b.bookingTime}</td>
-                    <td className="px-4 py-2 text-sm text-foreground">{b.partySize}</td>
-                    <td className="px-4 py-2 text-sm text-foreground">{b.status}</td>
+          <>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-border">
+                <thead className="bg-muted">
+                  <tr>
+                    <th className="px-4 py-2 text-left text-sm font-medium text-foreground">
+                      Customer
+                    </th>
+                    <th className="px-4 py-2 text-left text-sm font-medium text-foreground">
+                      Date
+                    </th>
+                    <th className="px-4 py-2 text-left text-sm font-medium text-foreground">
+                      Time
+                    </th>
+                    <th className="px-4 py-2 text-left text-sm font-medium text-foreground">
+                      Party
+                    </th>
+                    <th className="px-4 py-2 text-left text-sm font-medium text-foreground">
+                      Status
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-border bg-background">
+                  {recentBookings.map((b) => (
+                    <tr key={b.id} className="hover:bg-muted/50">
+                      <td className="px-4 py-2 text-sm text-foreground">{b.customerName}</td>
+                      <td className="px-4 py-2 text-sm text-foreground">{b.bookingDate}</td>
+                      <td className="px-4 py-2 text-sm text-foreground">{b.bookingTime}</td>
+                      <td className="px-4 py-2 text-sm text-foreground">{b.partySize}</td>
+                      <td className="px-4 py-2 text-sm text-foreground">{b.status}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-4 text-right">
+              <Link to="/bookings">
+                <Button className="bg-primary text-primary-foreground hover:bg-primary/90">
+                  View All Bookings
+                </Button>
+              </Link>
+            </div>
+          </>
         )}
       </section>
     </div>
