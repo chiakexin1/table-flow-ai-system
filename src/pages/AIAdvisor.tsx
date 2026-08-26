@@ -2,45 +2,40 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import Button from "@/components/common/Button";
-
 import {
   checkOllamaConnection,
   listOllamaModels,
   ollamaConfig,
-  streamChat,
-  type OllamaConnectionResult,
   type OllamaConnectionStatus,
+  type OllamaConnectionResult,
+  streamChat,
 } from "@/services/ollama";
-
 import {
   buildAIAdvisorContext,
   formatAIAdvisorContext,
   type AIAdvisorContext,
 } from "@/services/aiContext";
-
 import { useBooking } from "@/context/BookingContext";
 import { useAuth } from "@/context/AuthContext";
 import { getOrCreateRestaurantForCurrentUser } from "@/services/restaurantService";
 
 /* ------------------------------------------------------------------
-   Types
+   Types for chat messages.
    ------------------------------------------------------------------ */
-
 type AdvisorMessage = {
-  role: "user" | "assistant";
+  role: "system" | "user" | "assistant";
   content: string;
 };
 
 /* ------------------------------------------------------------------
-   Ollama status label
+   UI helper – map internal status to a human‑readable label.
    ------------------------------------------------------------------ */
-
 function statusLabel(
   status: OllamaConnectionStatus | "checking",
 ): string {
   switch (status) {
     case "checking":
-      return "Checking...";
+      return "Checking…";
     case "connected":
       return "Connected";
     case "offline":
@@ -57,880 +52,545 @@ function statusLabel(
 }
 
 /* ------------------------------------------------------------------
-   Main page
+   Main Advisor page.
    ------------------------------------------------------------------ */
-
 export default function AIAdvisor() {
-  /* ----------------------------------------------------------------
-     Auth / booking data
-     ---------------------------------------------------------------- */
-
-  const { user } = useAuth();
-
+  /* ---------- Auth & Booking state ---------- */
+  const { user, loading: authLoading } = useAuth();
   const {
     bookings,
     loading: bookingsLoading,
+    error: bookingsError,
   } = useBooking();
 
-  /* ----------------------------------------------------------------
-     Ollama state
-     ---------------------------------------------------------------- */
-
+  /* ---------- Ollama connection & model state ---------- */
   const [connectionStatus, setConnectionStatus] = useState<
     OllamaConnectionStatus | "checking"
   >("checking");
-
-  const [connectionDetails, setConnectionDetails] = useState<
-    string | undefined
-  >();
+  const [connectionDetails, setConnectionDetails] = useState<string | undefined>();
 
   const [availableModels, setAvailableModels] = useState<string[]>([]);
-  const [modelsLoading, setModelsLoading] = useState(true);
-
-  const [selectedModel, setSelectedModel] = useState<
-    string | undefined
-  >();
+  const [modelsLoading, setModelsLoading] = useState<boolean>(true);
+  const [selectedModel, setSelectedModel] = useState<string | undefined>();
 
   const LOCAL_STORAGE_KEY = "selectedOllamaModel";
 
-  /* ----------------------------------------------------------------
-     Restaurant state
-     ---------------------------------------------------------------- */
-
+  /* ---------- Restaurant info for AI context ---------- */
   const [restaurant, setRestaurant] = useState<any>(null);
+  const [restaurantLoading, setRestaurantLoading] = useState<boolean>(true);
 
-  /* ----------------------------------------------------------------
-     AI context state
-     ---------------------------------------------------------------- */
+  /* ---------- AI context building ---------- */
+  const [aiContext, setAIContext] = useState<AIAdvisorContext | undefined>();
+  const [contextStatus, setContextStatus] = useState<"loading" | "ready" | "unavailable">(
+    "loading",
+  );
+  const [previewOpen, setPreviewOpen] = useState<boolean>(false);
 
-  const [aiContext, setAIContext] = useState<
-    AIAdvisorContext | undefined
-  >();
-
-  const [contextStatus, setContextStatus] = useState<
-    "loading" | "ready" | "unavailable"
-  >("loading");
-
-  const [previewOpen, setPreviewOpen] = useState(false);
-
-  /* ----------------------------------------------------------------
-     Chat state
-     ---------------------------------------------------------------- */
-
+  /* ---------- Conversation state ---------- */
   const [messages, setMessages] = useState<AdvisorMessage[]>([]);
   const [input, setInput] = useState("");
-
-  const [isGenerating, setIsGenerating] = useState(false);
-
+  const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const abortRef = useRef<AbortController | null>(null);
 
-  /* ----------------------------------------------------------------
-     Load Ollama models
-     ---------------------------------------------------------------- */
+  /* ---------- Error handling state ---------- */
+  const [chatError, setChatError] = useState<boolean>(false); // true when last assistant response failed or was interrupted
+  const [lastUserMessage, setLastUserMessage] = useState<AdvisorMessage | null>(null);
 
+  /* ---------- Load models from Ollama ---------- */
   const fetchModels = async () => {
     setModelsLoading(true);
+    const models = await listOllamaModels();
+    setAvailableModels(models);
+    setModelsLoading(false);
 
-    try {
-      const models = await listOllamaModels();
-
-      setAvailableModels(models);
-
-      const storedModel =
-        localStorage.getItem(LOCAL_STORAGE_KEY);
-
-      if (
-        storedModel &&
-        models.includes(storedModel)
-      ) {
-        setSelectedModel(storedModel);
-        return;
-      }
-
-      if (
-        ollamaConfig.model &&
-        models.includes(ollamaConfig.model)
-      ) {
-        setSelectedModel(ollamaConfig.model);
-        return;
-      }
-
-      if (models.length > 0) {
-        setSelectedModel(models[0]);
-        return;
-      }
-
-      setSelectedModel(undefined);
-    } catch (error) {
-      console.error(
-        "[AIAdvisor] model loading error:",
-        error,
-      );
-
-      setAvailableModels([]);
-      setSelectedModel(undefined);
-    } finally {
-      setModelsLoading(false);
+    const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (stored && models.includes(stored)) {
+      setSelectedModel(stored);
+    } else if (ollamaConfig.model && models.includes(ollamaConfig.model)) {
+      setSelectedModel(ollamaConfig.model);
+    } else if (models.length > 0) {
+      setSelectedModel(models[0]);
     }
   };
 
-  /* ----------------------------------------------------------------
-     Ollama health check
-     ---------------------------------------------------------------- */
-
-  const runConnectionCheck = async (
-    modelToCheck?: string,
-  ) => {
+  /* ---------- Run Ollama health check (optional model) ---------- */
+  const runConnectionCheck = async (modelToCheck?: string) => {
     setConnectionStatus("checking");
     setConnectionDetails(undefined);
-
     try {
-      const result: OllamaConnectionResult =
-        await checkOllamaConnection(modelToCheck);
-
-      setConnectionStatus(result.status);
-
-      if (result.details) {
-        setConnectionDetails(result.details);
-      }
-    } catch (error) {
-      setConnectionStatus("offline");
-
-      setConnectionDetails(
-        error instanceof Error
-          ? error.message
-          : "Unknown Ollama connection error",
+      const result: OllamaConnectionResult = await checkOllamaConnection(
+        modelToCheck,
       );
+      setConnectionStatus(result.status);
+      if (result.details) setConnectionDetails(result.details);
+    } catch (e) {
+      setConnectionStatus("offline");
+      setConnectionDetails((e as Error).message);
     }
   };
 
-  /* ----------------------------------------------------------------
-     Restaurant bootstrap
-     ---------------------------------------------------------------- */
-
+  /* ---------- Load restaurant for the current authenticated user ---------- */
   const fetchRestaurant = async () => {
     if (!user) {
       setRestaurant(null);
+      setRestaurantLoading(false);
       return;
     }
-
+    setRestaurantLoading(true);
     try {
-      const currentRestaurant =
-        await getOrCreateRestaurantForCurrentUser();
-
-      setRestaurant(currentRestaurant);
-    } catch (error) {
-      console.error(
-        "[AIAdvisor] restaurant fetch error:",
-        error,
-      );
-
+      const rest = await getOrCreateRestaurantForCurrentUser();
+      setRestaurant(rest);
+    } catch (err) {
+      console.error("[AIAdvisor] restaurant fetch error:", err);
       setRestaurant(null);
+    } finally {
+      setRestaurantLoading(false);
     }
   };
 
-  /* ----------------------------------------------------------------
-     Build minimised AI context
-     ---------------------------------------------------------------- */
-
+  /* ---------- Build AI context when data becomes ready ---------- */
   const buildContext = async () => {
-    if (
-      !restaurant ||
-      bookingsLoading ||
-      !bookings
-    ) {
+    if (!restaurant || bookingsLoading || !bookings) {
       setContextStatus("loading");
       setAIContext(undefined);
       return;
     }
 
     try {
-      const context =
-        await buildAIAdvisorContext(
-          bookings,
-          restaurant,
-        );
-
-      if (!context) {
+      const ctx = await buildAIAdvisorContext(bookings, restaurant);
+      if (ctx) {
+        setAIContext(ctx);
+        setContextStatus("ready");
+      } else {
         setContextStatus("unavailable");
-        setAIContext(undefined);
-        return;
       }
-
-      setAIContext(context);
-      setContextStatus("ready");
-    } catch (error) {
-      console.error(
-        "[AIAdvisor] context build error:",
-        error,
-      );
-
-      setAIContext(undefined);
+    } catch (err) {
+      console.error("[AIAdvisor] context build error:", err);
       setContextStatus("unavailable");
+      setAIContext(undefined);
     }
   };
 
-  /* ----------------------------------------------------------------
-     Effects
-     ---------------------------------------------------------------- */
-
+  /* ---------- Initial effects ---------- */
   useEffect(() => {
     fetchModels();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /* Reload restaurant when auth user changes – also clear conversation */
   useEffect(() => {
-    /*
-      Prevent conversation/state leakage when
-      switching authenticated users.
-    */
-    abortRef.current?.abort();
-    abortRef.current = null;
-
     setMessages([]);
     setInput("");
     setPreviewOpen(false);
     setIsGenerating(false);
-
-    setRestaurant(null);
-    setAIContext(undefined);
-    setContextStatus("loading");
-
+    abortRef.current?.abort(); // cancel any in‑flight generation
     fetchRestaurant();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
+  /* Re‑run health check whenever selected model changes */
   useEffect(() => {
-    if (!selectedModel) {
-      return;
+    if (selectedModel !== undefined) {
+      localStorage.setItem(LOCAL_STORAGE_KEY, selectedModel);
+      runConnectionCheck(selectedModel);
     }
-
-    localStorage.setItem(
-      LOCAL_STORAGE_KEY,
-      selectedModel,
-    );
-
-    runConnectionCheck(selectedModel);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedModel]);
 
+  /* Build AI context whenever its dependencies change */
   useEffect(() => {
     buildContext();
-  }, [
-    restaurant,
-    bookings,
-    bookingsLoading,
-  ]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [restaurant, bookings, bookingsLoading]);
 
-  /* ----------------------------------------------------------------
-     Quick prompts
-     ---------------------------------------------------------------- */
-
+  /* ---------- Quick‑prompt helpers ---------- */
   const quickPrompts = [
     "Analyse today's bookings",
     "How can I reduce no-shows?",
     "Summarise current booking activity",
   ] as const;
 
-  const applyPrompt = (
-    prompt: (typeof quickPrompts)[number],
-  ) => {
-    if (isGenerating) {
-      return;
-    }
-
+  const applyPrompt = (prompt: typeof quickPrompts[number]) => {
     setInput(prompt);
   };
 
-  /* ----------------------------------------------------------------
-     Conversation controls
-     ---------------------------------------------------------------- */
-
+  /* ---------- Conversation helpers ---------- */
   const clearConversation = () => {
-    if (isGenerating) {
-      abortRef.current?.abort();
-      abortRef.current = null;
-      setIsGenerating(false);
-    }
-
     setMessages([]);
     setInput("");
+    setChatError(false);
+    setLastUserMessage(null);
   };
 
   const stopGeneration = () => {
     abortRef.current?.abort();
-    abortRef.current = null;
+    // Append a generation‑stopped note to the current assistant placeholder
+    setMessages((prev) => {
+      const last = prev[prev.length - 1];
+      if (last && last.role === "assistant") {
+        const updated = {
+          ...last,
+          content: `${last.content}\n\n[Generation stopped]`,
+        };
+        return [...prev.slice(0, -1), updated];
+      }
+      return prev;
+    });
     setIsGenerating(false);
+    setChatError(false); // user‑initiated stop is not a retryable error
   };
 
-  /* ----------------------------------------------------------------
-     Send eligibility
-     ---------------------------------------------------------------- */
+  /* ---------- Retry handling ---------- */
+  const retryLast = async () => {
+    if (!lastUserMessage || !aiContext || !selectedModel) return;
 
-  const canSend =
-    connectionStatus === "connected" &&
-    Boolean(selectedModel) &&
-    contextStatus === "ready" &&
-    input.trim().length > 0 &&
-    !isGenerating;
-
-  /* ----------------------------------------------------------------
-     Send question to Ollama
-     ---------------------------------------------------------------- */
-
-  const handleSend = async () => {
-    if (
-      !canSend ||
-      !aiContext ||
-      !selectedModel
-    ) {
-      return;
-    }
-
-    const question = input.trim();
-
-    if (!question) {
-      return;
-    }
-
-    const userMessage: AdvisorMessage = {
-      role: "user",
-      content: question,
-    };
-
-    /*
-      IMPORTANT:
-      Capture the conversation BEFORE React state changes.
-
-      This ensures the latest user question is actually
-      included in the request sent to Ollama.
-    */
-    const conversationForRequest = [
-      ...messages,
-      userMessage,
-    ];
-
-    /*
-      Display user message and empty assistant placeholder.
-      Streaming chunks will be appended to this assistant entry.
-    */
-    setMessages([
-      ...conversationForRequest,
-      {
-        role: "assistant",
-        content: "",
-      },
-    ]);
-
-    setInput("");
+    // Remove the failing assistant placeholder (last message)
+    setMessages((prev) => prev.slice(0, -1));
+    setChatError(false);
     setIsGenerating(true);
+    abortRef.current = new AbortController();
 
-    const controller = new AbortController();
-    abortRef.current = controller;
+    // Re‑use the same system prompt with grounding guardrails
+    const systemPrompt = `You are TableFlow AI Advisor, a restaurant operations assistant. Follow these grounding rules strictly:
 
-    /* --------------------------------------------------------------
-       Grounded system prompt
+- Use ONLY the supplied restaurant context as the source of any restaurant‑specific facts.
+- Never invent or approximate numbers such as revenue, prices, costs, booking durations, end times, staffing levels, or any quantitative data that is not present in the context.
+- Never claim knowledge of data that is absent from the context.
+- If a requested fact is not available, respond with exactly: "This information is not available in the current restaurant context."
+- You may provide general advice or recommendations, but those must be prefixed with "General recommendation:" and must not be presented as facts about this specific restaurant.
 
-       Restaurant-specific factual claims must come only from
-       the minimised context generated by B4.3.
-       -------------------------------------------------------------- */
+Context:
+${formatAIAdvisorContext(aiContext)}`;
 
-    const systemPrompt = `
-You are TableFlow AI Advisor, an operational assistant for a restaurant booking management application.
-
-GROUNDING RULES
-
-1. Use ONLY the supplied restaurant context below as the source of restaurant-specific facts.
-
-2. Never invent, estimate, infer, or assume missing restaurant-specific information.
-
-3. Never invent or approximate:
-- revenue
-- prices
-- costs
-- financial impact
-- booking duration
-- booking end time
-- customer behaviour
-- staffing levels
-- employee numbers
-- restaurant capacity
-- sales
-- menu information
-- operating costs
-- demand that is not shown in the context
-- any other numeric value not explicitly available in the context
-
-4. Do not convert missing data into zero.
-For example, if revenue information is unavailable, do NOT say revenue is RM0 or $0.
-
-5. If the user asks for factual information that is not available in the supplied context, say:
-"This information is not available in the current restaurant context."
-
-6. General operational advice is allowed.
-
-7. Any advice that is not directly supported by the restaurant context must be clearly introduced with:
-"General recommendation:"
-
-8. Do not present a general recommendation as an observed fact about this restaurant.
-
-9. Do not invent an end time for a booking when only the booking start time is supplied.
-
-10. Do not state how many employees should be scheduled unless staffing information and required operational data are supplied.
-
-11. When analysing bookings:
-- distinguish known facts from recommendations
-- use exact booking counts and statuses provided by the context
-- do not create additional bookings, customers, statuses, times, dates, or metrics
-
-12. Be concise, practical, and transparent about unavailable information.
-
-CURRENT RESTAURANT CONTEXT
-
-${formatAIAdvisorContext(aiContext)}
-`.trim();
-
+    // Build the message list: system + ALL USER messages (including the last one)
     const ollamaMessages = [
-      {
-        role: "system" as const,
-        content: systemPrompt,
-      },
-
-      ...conversationForRequest.map(
-        (message) => ({
-          role: message.role,
-          content: message.content,
-        }),
-      ),
+      { role: "system" as const, content: systemPrompt },
+      ...messages
+        .filter((m) => m.role !== "assistant")
+        .map((m) => ({ role: m.role as const, content: m.content })),
     ];
 
     try {
-      let receivedContent = false;
+      let receivedChunk = false;
 
       await streamChat(
         ollamaMessages,
         selectedModel,
-
-        (chunk: string) => {
-          if (!chunk) {
-            return;
-          }
-
-          receivedContent = true;
-
-          setMessages((previousMessages) => {
-            if (
-              previousMessages.length === 0
-            ) {
-              return previousMessages;
+        (chunk) => {
+          receivedChunk = true;
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (last && last.role === "assistant") {
+              const updated = { ...last, content: last.content + chunk };
+              return [...prev.slice(0, -1), updated];
             }
-
-            const lastIndex =
-              previousMessages.length - 1;
-
-            const lastMessage =
-              previousMessages[lastIndex];
-
-            if (
-              lastMessage.role !== "assistant"
-            ) {
-              return previousMessages;
-            }
-
-            const updatedAssistant: AdvisorMessage = {
-              ...lastMessage,
-              content:
-                lastMessage.content + chunk,
-            };
-
-            return [
-              ...previousMessages.slice(
-                0,
-                lastIndex,
-              ),
-              updatedAssistant,
-            ];
+            return prev;
           });
         },
-
-        controller,
+        abortRef.current,
       );
 
-      /*
-        A successful HTTP response with no assistant
-        content should not leave an invisible blank entry.
-      */
-      if (!receivedContent) {
-        setMessages((previousMessages) => {
-          if (
-            previousMessages.length === 0
-          ) {
-            return previousMessages;
+      if (!receivedChunk) {
+        // Stream ended without data → treat as interruption
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          if (last && last.role === "assistant") {
+            const updated = {
+              ...last,
+              content: `${last.content}\n\n[Response interrupted]`,
+            };
+            return [...prev.slice(0, -1), updated];
           }
-
-          const lastIndex =
-            previousMessages.length - 1;
-
-          const lastMessage =
-            previousMessages[lastIndex];
-
-          if (
-            lastMessage.role !== "assistant" ||
-            lastMessage.content.trim().length > 0
-          ) {
-            return previousMessages;
-          }
-
-          return [
-            ...previousMessages.slice(
-              0,
-              lastIndex,
-            ),
-            {
-              role: "assistant",
-              content:
-                "No response content was returned by the selected AI model. Please try again.",
-            },
-          ];
+          return prev;
         });
+        setChatError(true);
       }
-    } catch (error: unknown) {
-      /*
-        User intentionally pressed Stop Generation.
-        Preserve any partial response already streamed.
-      */
-      const aborted =
-        error instanceof DOMException &&
-        error.name === "AbortError";
-
-      if (aborted) {
-        setMessages((previousMessages) => {
-          if (
-            previousMessages.length === 0
-          ) {
-            return previousMessages;
+    } catch (err: any) {
+      if (err.name === "AbortError") {
+        // should not happen here (user‑initiated stop), but handle gracefully
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          if (last && last.role === "assistant") {
+            const updated = {
+              ...last,
+              content: `${last.content}\n\n[Generation stopped]`,
+            };
+            return [...prev.slice(0, -1), updated];
           }
-
-          const lastIndex =
-            previousMessages.length - 1;
-
-          const lastMessage =
-            previousMessages[lastIndex];
-
-          if (
-            lastMessage.role !== "assistant"
-          ) {
-            return previousMessages;
-          }
-
-          /*
-            If some response was already generated,
-            retain it and add a stopped marker.
-          */
-          if (
-            lastMessage.content.trim().length >
-            0
-          ) {
-            return [
-              ...previousMessages.slice(
-                0,
-                lastIndex,
-              ),
-              {
-                ...lastMessage,
-                content:
-                  `${lastMessage.content}\n\n[Generation stopped]`,
-              },
-            ];
-          }
-
-          return [
-            ...previousMessages.slice(
-              0,
-              lastIndex,
-            ),
-            {
-              role: "assistant",
-              content:
-                "Generation was stopped.",
-            },
-          ];
+          return prev;
         });
-
-        return;
+      } else {
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          const errorMsg =
+            "⚠️ An error occurred while generating the response. Please check the Ollama connection and try again.";
+          if (last && last.role === "assistant") {
+            const updated = { ...last, content: errorMsg };
+            return [...prev.slice(0, -1), updated];
+          }
+          return [...prev, { role: "assistant", content: errorMsg }];
+        });
+        console.error("[AIAdvisor] chat generation error (retry):", err);
+        setChatError(true);
       }
-
-      console.error(
-        "[AIAdvisor] chat generation error:",
-        error,
-      );
-
-      const friendlyError =
-        error instanceof Error
-          ? error.message
-          : "Unknown generation error";
-
-      setMessages((previousMessages) => {
-        if (
-          previousMessages.length === 0
-        ) {
-          return [
-            {
-              role: "assistant",
-              content:
-                "Unable to generate an AI response. Please try again.",
-            },
-          ];
-        }
-
-        const lastIndex =
-          previousMessages.length - 1;
-
-        const lastMessage =
-          previousMessages[lastIndex];
-
-        const errorText =
-          `Unable to generate an AI response. Please try again.\n\n${friendlyError}`;
-
-        if (
-          lastMessage.role === "assistant"
-        ) {
-          return [
-            ...previousMessages.slice(
-              0,
-              lastIndex,
-            ),
-            {
-              role: "assistant",
-              content: errorText,
-            },
-          ];
-        }
-
-        return [
-          ...previousMessages,
-          {
-            role: "assistant",
-            content: errorText,
-          },
-        ];
-      });
     } finally {
-      /*
-        Only clear the controller if this request
-        is still the currently active request.
-      */
-      if (
-        abortRef.current === controller
-      ) {
-        abortRef.current = null;
-      }
-
       setIsGenerating(false);
+      abortRef.current = null;
     }
   };
 
-  /* ----------------------------------------------------------------
-     Model selector
-     ---------------------------------------------------------------- */
+  /* ---------- Send handling ---------- */
+  const canSend =
+    connectionStatus === "connected" &&
+    !!selectedModel &&
+    contextStatus === "ready" &&
+    input.trim().length > 0 &&
+    !isGenerating;
 
-  const handleModelSelect = (
-    event: React.ChangeEvent<HTMLSelectElement>,
-  ) => {
-    const value = event.target.value;
+  const handleSend = async () => {
+    if (!canSend || !aiContext || !selectedModel) return;
 
+    // Record the user message
+    const userMsg: AdvisorMessage = {
+      role: "user",
+      content: input.trim(),
+    };
+    setMessages((prev) => [...prev, userMsg]);
+    setLastUserMessage(userMsg);
+        setInput("");
+
+        // Placeholder assistant message
+        const assistantPlaceholder: AdvisorMessage = {
+          role: "assistant",
+          content: "",
+        };
+        setMessages((prev) => [...prev, assistantPlaceholder]);
+
+        setIsGenerating(true);
+        abortRef.current = new AbortController();
+
+        // ------------------------------------------------------------------
+        // System prompt with strict grounding (same as in B4.4.1)
+        // ------------------------------------------------------------------
+        const systemPrompt = `You are TableFlow AI Advisor, a restaurant operations assistant. Follow these grounding rules strictly:
+
+- Use ONLY the supplied restaurant context as the source of any restaurant‑specific facts.
+- Never invent or approximate numbers such as revenue, prices, costs, booking durations, end times, staffing levels, or any quantitative data that is not present in the context.
+- Never claim knowledge of data that is absent from the context.
+- If a requested fact is not available, respond with exactly: "This information is not available in the current restaurant context."
+- You may provide general advice or recommendations, but those must be prefixed with "General recommendation:" and must not be presented as facts about this specific restaurant.
+
+Context:
+${formatAIAdvisorContext(aiContext)}`;
+
+        // Build the message list for Ollama (system + all user messages so far)
+        const ollamaMessages = [
+          { role: "system" as const, content: systemPrompt },
+          ...messages
+            .filter((m) => m.role !== "assistant") // exclude the placeholder we just added
+            .map((m) => ({ role: m.role as const, content: m.content })),
+        ];
+
+        let receivedChunk = false;
+
+        try {
+          await streamChat(
+            ollamaMessages,
+            selectedModel,
+            (chunk) => {
+              receivedChunk = true;
+              setMessages((prev) => {
+                const last = prev[prev.length - 1];
+                if (last && last.role === "assistant") {
+                  const updated = { ...last, content: last.content + chunk };
+                  return [...prev.slice(0, -1), updated];
+                }
+                return prev;
+              });
+            },
+            abortRef.current,
+          );
+
+          // If the stream finished without delivering any chunk, treat it as interruption
+          if (!receivedChunk) {
+            setMessages((prev) => {
+              const last = prev[prev.length - 1];
+              if (last && last.role === "assistant") {
+                const updated = {
+                  ...last,
+                  content: `${last.content}\n\n[Response interrupted]`,
+                };
+                return [...prev.slice(0, -1), updated];
+              }
+              return prev;
+            });
+            setChatError(true);
+          }
+        } catch (err: any) {
+          if (err.name === "AbortError") {
+            // User‑initiated abort – already handled in stopGeneration, but keep a fallback
+            setMessages((prev) => {
+              const last = prev[prev.length - 1];
+              if (last && last.role === "assistant") {
+                const updated = {
+                  ...last,
+                  content: `${last.content}\n\n[Generation stopped]`,
+                };
+                return [...prev.slice(0, -1), updated];
+              }
+              return prev;
+            });
+          } else {
+            // Any other error → friendly UI message & mark for retry
+            setMessages((prev) => {
+              const last = prev[prev.length - 1];
+              const errorMsg =
+                "⚠️ Unable to generate an AI response. Please check the Ollama connection and try again.";
+              if (last && last.role === "assistant") {
+                const updated = { ...last, content: errorMsg };
+                return [...prev.slice(0, -1), updated];
+              }
+              return [...prev, { role: "assistant", content: errorMsg }];
+            });
+            console.error("[AIAdvisor] chat generation error:", err);
+            setChatError(true);
+          }
+        } finally {
+          setIsGenerating(false);
+          abortRef.current = null;
+        }
+      };
+
+  /* ---------- Model selector UI ---------- */
+  const handleModelSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const value = e.target.value;
     if (value === "__none__") {
       setSelectedModel(undefined);
-      setConnectionStatus(
-        "model_not_configured",
-      );
-      return;
+    } else {
+      setSelectedModel(value);
     }
-
-    setSelectedModel(value);
   };
 
-  /* ----------------------------------------------------------------
-     Render
-     ---------------------------------------------------------------- */
-
   return (
-    <section className="mx-auto max-w-4xl rounded-lg bg-card p-6 shadow">
-      {/* ============================================================
-          Header
-          ============================================================ */}
-
+    <section className="max-w-4xl mx-auto p-6 bg-card rounded-lg shadow">
+      {/* ----- Header ----- */}
       <header className="mb-6">
-        <h1 className="text-3xl font-bold text-foreground">
-          AI Advisor
-        </h1>
-
+        <h1 className="text-3xl font-bold text-foreground">AI Advisor</h1>
         <p className="text-muted-foreground">
-          Get AI-powered operational insights for your restaurant.
+          Get AI‑powered operational insights for your restaurant.
         </p>
       </header>
 
-      {/* ============================================================
-          Ollama connection panel
-          ============================================================ */}
-
-      <div className="mb-6 rounded-md border bg-background p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <span className="font-medium text-foreground">
-            Ollama Service:
-          </span>
-
+      {/* ----- Ollama connection panel ----- */}
+      <div className="mb-6 p-4 border rounded-md bg-background">
+        <div className="flex items-center justify-between mb-2">
+          <span className="font-medium text-foreground">Ollama Service:</span>
           <span
             className={`font-medium ${
-              connectionStatus ===
-              "connected"
+              connectionStatus === "connected"
                 ? "text-primary"
-                : connectionStatus ===
-                    "checking"
-                  ? "text-muted-foreground"
-                  : "text-destructive"
+                : connectionStatus === "checking"
+                ? "text-muted-foreground"
+                : "text-destructive"
             }`}
           >
             {statusLabel(connectionStatus)}
           </span>
         </div>
 
-        <div className="flex items-center justify-between gap-4">
-          <label
-            htmlFor="ollama-model"
-            className="font-medium text-foreground"
-          >
-            Model:
-          </label>
+        <div className="flex items-center justify-between">
+          <label className="font-medium text-foreground">Model:</label>
 
           {modelsLoading ? (
             <span className="text-sm text-muted-foreground">
-              Loading models...
+              Loading models…
             </span>
-          ) : availableModels.length ===
-            0 ? (
+          ) : availableModels.length === 0 ? (
             <span className="text-sm text-destructive">
-              No Ollama models available
+              No Ollama models installed
             </span>
           ) : (
             <select
-              id="ollama-model"
-              value={
-                selectedModel ??
-                "__none__"
-              }
-              onChange={
-                handleModelSelect
-              }
-              disabled={isGenerating}
-              className="min-w-[260px] rounded border border-input bg-background px-3 py-2 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              value={selectedModel ?? "__none__"}
+              onChange={handleModelSelect}
+              className="rounded border border-input bg-background px-2 py-1 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             >
-              <option
-                value="__none__"
-                disabled
-              >
+              <option value="__none__" disabled>
                 -- select a model --
               </option>
-
-              {availableModels.map(
-                (model) => (
-                  <option
-                    key={model}
-                    value={model}
-                  >
-                    {model}
-                  </option>
-                ),
-              )}
+              {availableModels.map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
+              ))}
             </select>
           )}
         </div>
 
-        {connectionStatus ===
-          "connected" &&
-          selectedModel && (
-            <p className="mt-3 text-sm text-foreground">
-              Selected model:{" "}
-              <span className="font-medium">
-                {selectedModel}
-              </span>
-            </p>
-          )}
-
-        {connectionDetails && (
-          <p className="mt-2 text-xs text-muted-foreground">
-            {connectionDetails}
+        {/* Connection‑specific explanatory messages */}
+        {connectionStatus === "offline" && (
+          <p className="mt-2 text-sm text-destructive">
+            Unable to connect to the Ollama service. Make sure Ollama is running
+            and try again.
           </p>
+        )}
+        {connectionStatus === "timeout" && (
+          <p className="mt-2 text-sm text-destructive">
+            Connection to Ollama timed out. Please try again later.
+          </p>
+        )}
+        {connectionStatus === "model_not_found" && (
+          <p className="mt-2 text-sm text-destructive">
+            The selected model is not available on this Ollama instance. Choose
+            another model.
+          </p>
+        )}
+        {connectionDetails && connectionStatus !== "offline" && (
+          <p className="mt-2 text-xs text-muted-foreground">{connectionDetails}</p>
         )}
 
         <Button
-          type="button"
-          onClick={() =>
-            runConnectionCheck(
-              selectedModel,
-            )
-          }
-          disabled={
-            connectionStatus ===
-              "checking" ||
-            isGenerating
-          }
+          onClick={() => runConnectionCheck(selectedModel)}
           className="mt-4 bg-primary text-primary-foreground hover:bg-primary/90"
+          disabled={connectionStatus === "checking"}
         >
-          {connectionStatus ===
-          "checking"
-            ? "Checking..."
-            : "Check Connection"}
+          Check Connection
         </Button>
       </div>
 
-      {/* ============================================================
-          AI Context
-          ============================================================ */}
-
-      <div className="mb-6 rounded-md border bg-background p-4">
-        <div className="mb-2 flex items-center justify-between">
-          <span className="font-medium text-foreground">
-            AI Context:
-          </span>
-
+      {/* ----- AI Context panel ----- */}
+      <div className="mb-6 p-4 border rounded-md bg-background">
+        <div className="flex items-center justify-between mb-2">
+          <span className="font-medium text-foreground">AI Context:</span>
           <span
             className={`font-medium ${
               contextStatus === "ready"
                 ? "text-primary"
-                : contextStatus ===
-                    "loading"
-                  ? "text-muted-foreground"
-                  : "text-destructive"
+                : contextStatus === "loading"
+                ? "text-muted-foreground"
+                : "text-destructive"
             }`}
           >
             {contextStatus === "ready"
               ? "Ready"
-              : contextStatus ===
-                  "loading"
-                ? "Loading..."
-                : "Unavailable"}
+              : contextStatus === "loading"
+              ? "Loading..."
+              : "Unavailable"}
           </span>
         </div>
 
         <Button
-          type="button"
-          onClick={() =>
-            setPreviewOpen(
-              (current) => !current,
-            )
-          }
+          onClick={() => setPreviewOpen(!previewOpen)}
           className="mt-2 bg-muted text-muted-foreground hover:bg-muted/80"
         >
-          {previewOpen
-            ? "Hide Context Preview"
-            : "Show Context Preview"}
+          {previewOpen ? "Hide Context Preview" : "Show Context Preview"}
         </Button>
 
         {previewOpen && (
-          <div className="mt-4 max-h-64 overflow-y-auto rounded border border-border bg-card p-3">
+          <div className="mt-4 max-h-64 overflow-y-auto bg-card rounded p-3 border border-border">
             {aiContext ? (
-              <pre className="whitespace-pre-wrap text-xs text-foreground">
-                {formatAIAdvisorContext(
-                  aiContext,
-                )}
+              <pre className="text-xs text-foreground whitespace-pre-wrap">
+                {formatAIAdvisorContext(aiContext)}
               </pre>
             ) : (
               <p className="text-sm text-muted-foreground">
@@ -941,111 +601,70 @@ ${formatAIAdvisorContext(aiContext)}
         )}
 
         <p className="mt-2 text-xs text-muted-foreground">
-          Only the information shown here will be shared with the selected local AI model.
+          Only the information shown here will be shared with the selected local
+          AI model.
         </p>
       </div>
 
-      {/* ============================================================
-          Conversation
-          ============================================================ */}
-
+      {/* ----- Conversation area ----- */}
       <div className="flex flex-col gap-4">
-        {/* ----------------------------------------------------------
-            Messages
-            ---------------------------------------------------------- */}
-
-        <div className="min-h-[240px] max-h-[520px] overflow-y-auto rounded border bg-background p-4">
+        {/* Message list */}
+        <div className="flex-1 min-h-[200px] p-4 border rounded bg-background overflow-y-auto">
           {messages.length === 0 ? (
             <p className="text-muted-foreground">
-              Ask TableFlow AI Advisor about your restaurant operations, bookings, no-shows, or customer enquiries.
+              Ask TableFlow AI Advisor about your restaurant operations,
+              bookings, no‑shows, or customer enquiries.
             </p>
           ) : (
-            messages.map(
-              (message, index) => (
-                <div
-                  key={`${message.role}-${index}`}
-                  className="mb-5"
-                >
-                  <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    {message.role ===
-                    "user"
-                      ? "You"
-                      : "AI Advisor"}
+            messages.map((msg, idx) => (
+              <div key={idx} className="mb-2">
+                {msg.role === "user" && (
+                  <p className="text-foreground font-medium">
+                    You: {msg.content}
                   </p>
-
-                  <div className="whitespace-pre-wrap break-words text-foreground">
-                    {message.content ||
-                      (message.role ===
-                        "assistant" &&
-                      isGenerating
-                        ? "Thinking..."
-                        : "")}
-                  </div>
-                </div>
-              ),
-            )
+                )}
+                {msg.role === "assistant" && (
+                  <p className="text-foreground">{msg.content}</p>
+                )}
+              </div>
+            ))
           )}
         </div>
 
-        {/* ----------------------------------------------------------
-            Quick prompts
-            ---------------------------------------------------------- */}
-
+        {/* Quick‑prompt buttons */}
         <div className="flex flex-wrap gap-2">
-          {quickPrompts.map(
-            (prompt) => (
-              <Button
-                key={prompt}
-                type="button"
-                onClick={() =>
-                  applyPrompt(prompt)
-                }
-                disabled={
-                  isGenerating
-                }
-                className="bg-muted text-muted-foreground hover:bg-muted/80"
-              >
-                {prompt}
-              </Button>
-            ),
-          )}
+          {quickPrompts.map((prompt) => (
+            <Button
+              key={prompt}
+              onClick={() => applyPrompt(prompt)}
+              className="bg-muted text-muted-foreground hover:bg-muted/80"
+            >
+              {prompt}
+            </Button>
+          ))}
         </div>
 
-        {/* ----------------------------------------------------------
-            Input
-            ---------------------------------------------------------- */}
-
+        {/* Input field */}
         <textarea
-          rows={4}
-          placeholder="Enter your question here..."
+          rows={3}
+          placeholder="Enter your question here…"
           value={input}
-          onChange={(event) =>
-            setInput(
-              event.target.value,
-            )
-          }
+          onChange={(e) => setInput(e.target.value)}
+          className="w-full rounded-md border border-input bg-background p-2 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           disabled={isGenerating}
-          className="w-full resize-y rounded-md border border-input bg-background p-3 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-60"
         />
 
-        {/* ----------------------------------------------------------
-            Action buttons
-            ---------------------------------------------------------- */}
-
-        <div className="flex flex-wrap items-center gap-3">
+        {/* Action buttons */}
+        <div className="flex items-center gap-4">
           <Button
             type="button"
             onClick={handleSend}
             disabled={!canSend}
             className={`bg-primary text-primary-foreground ${
-              !canSend
-                ? "cursor-not-allowed opacity-50"
-                : "hover:bg-primary/90"
+              !canSend ? "opacity-50 cursor-not-allowed" : "hover:bg-primary/90"
             }`}
           >
-            {isGenerating
-              ? "Generating..."
-              : "Send"}
+            Send
           </Button>
 
           {isGenerating && (
@@ -1054,34 +673,37 @@ ${formatAIAdvisorContext(aiContext)}
               onClick={stopGeneration}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              Stop Generation
+              Stop
+            </Button>
+          )}
+
+          {chatError && (
+            <Button
+              type="button"
+              onClick={retryLast}
+              className="bg-primary text-primary-foreground hover:bg-primary/90"
+            >
+              Retry
             </Button>
           )}
 
           <Button
             type="button"
-            onClick={
-              clearConversation
-            }
-            disabled={isGenerating}
-            className="bg-muted text-muted-foreground hover:bg-muted/80 disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={clearConversation}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
           >
             Clear Conversation
           </Button>
 
-          {isGenerating && (
-            <span className="text-sm text-muted-foreground">
-              AI Advisor is generating a response...
-            </span>
-          )}
+          <span className="text-sm text-muted-foreground">
+            AI responses will be enabled after context setup.
+          </span>
         </div>
 
-        {/* ----------------------------------------------------------
-            Privacy / grounding note
-            ---------------------------------------------------------- */}
-
-        <p className="text-xs text-muted-foreground">
-          Only relevant restaurant context will be shared with the selected local AI model when you submit a request.
+        {/* Privacy / context notice */}
+        <p className="mt-2 text-xs text-muted-foreground">
+          Only relevant restaurant context will be shared with the local AI model
+          when you submit a request.
         </p>
       </div>
     </section>
