@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Button from "@/components/common/Button";
 import { supabase } from "@/lib/supabase";
 import { getOrCreateRestaurantForCurrentUser } from "@/services/restaurantService";
 import type { Restaurant } from "@/services/restaurantService";
