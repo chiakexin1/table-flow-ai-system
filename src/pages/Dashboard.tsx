@@ -3,6 +3,8 @@
 import React from "react";
 import Card from "@/components/common/Card";
 import { useBooking } from "@/context/BookingContext";
+import { StatusChart } from "@/components/dashboard/StatusChart";
+import { TrendChart } from "@/components/dashboard/TrendChart";
 
 /**
  * Dashboard – shows operational KPIs for the authenticated restaurant.
@@ -13,8 +15,10 @@ import { useBooking } from "@/context/BookingContext";
  *   • Existing KPIs unchanged
  *
  * Additional sections:
- *   • Recent Bookings – up to 5 most recent bookings.
+ *   • Recent Bookings – up to 5 recent bookings.
  *   • Attention Needed – shows pending & escalated counts or a friendly empty state.
+ *   • Booking Status Breakdown (pie chart)
+ *   • 7‑Day Booking Trend (bar chart)
  */
 const Dashboard = () => {
   const { bookings, loading } = useBooking();
@@ -80,6 +84,25 @@ const Dashboard = () => {
     [bookings],
   );
 
+  /* ---------- Status counts for chart ---------- */
+  const statusCounts = React.useMemo(() => {
+    const init = {
+      Pending: 0,
+      Confirmed: 0,
+      Completed: 0,
+      Cancelled: 0,
+      "No-show": 0,
+      Escalated: 0,
+    };
+    bookings.forEach((b) => {
+      const s = b.status as keyof typeof init;
+      if (init[s] !== undefined) {
+        init[s] += 1;
+      }
+    });
+    return init;
+  }, [bookings]);
+
   /* ---------- Recent Bookings (max 5) ---------- */
   const recentBookings = React.useMemo(() => {
     const sorted = [...bookings].sort((a, b) => {
@@ -106,6 +129,12 @@ const Dashboard = () => {
           title="Open Escalations"
           description={String(openEscalationsCount)}
         />
+      </div>
+
+      {/* ==== CHARTS SECTION (responsive) ==== */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <StatusChart statusCounts={statusCounts} />
+        <TrendChart bookings={bookings} />
       </div>
 
       {/* ==== ATTENTION NEEDED SECTION ==== */}
