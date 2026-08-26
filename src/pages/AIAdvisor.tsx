@@ -490,16 +490,18 @@ ${formatAIAdvisorContext(aiContext)}`;
         />
 
         {/* Action buttons */}
-        <div className="flex items-center gap-4">
+       <div className="flex flex-wrap items-center gap-3">
           <Button
             type="button"
             onClick={handleSend}
             disabled={!canSend}
             className={`bg-primary text-primary-foreground ${
-              !canSend ? "opacity-50 cursor-not-allowed" : "hover:bg-primary/90"
+              !canSend
+                ? "cursor-not-allowed opacity-50"
+                : "hover:bg-primary/90"
             }`}
           >
-            Send
+            {isGenerating ? "Generating..." : "Send"}
           </Button>
 
           {isGenerating && (
@@ -508,31 +510,24 @@ ${formatAIAdvisorContext(aiContext)}`;
               onClick={stopGeneration}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              Stop
+              Stop Generation
             </Button>
           )}
 
           <Button
             type="button"
             onClick={clearConversation}
-            class          <Button
-            type="button"
-            onClick={clearConversation}
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            className="bg-muted text-muted-foreground hover:bg-muted/80"
           >
             Clear Conversation
           </Button>
 
-          <span className="text-sm text-muted-foreground">
-            AI responses will be enabled after context setup.
-          </span>
+          {isGenerating && (
+            <span className="text-sm text-muted-foreground">
+              AI Advisor is generating a response...
+            </span>
+          )}
         </div>
-
-        {/* Privacy / context notice */}
-        <p className="mt-2 text-xs text-muted-foreground">
-          Only relevant restaurant context will be shared with the local AI model
-          when you submit a request.
-        </p>
       </div>
     </section>
   );
